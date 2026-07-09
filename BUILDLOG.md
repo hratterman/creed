@@ -86,7 +86,17 @@ Acceptance results on the finished build (headless Chromium + SwiftShader):
   trip orbit -> bubble -> orbit, zero page errors.
 - Manifestation (Literal dial): PASS; a vast, fervent faith called its god
   into the world, with the pillar-of-light beat covered by the director.
-- Deep-time and stability long runs: see final entries below.
+- Deep-time test (30 real minutes at deep-time speed, no input): PASS.
+  12,025 years simulated; 33 living faiths at the end; 208 foundings, 250
+  schisms, 303 syncretisms, 801 endings, 24 holy wars, 51 persecutions, 55
+  martyrs, 66 philosophical foundings, 116 failed prophecies, 12 reforms, 15
+  depositions; population stable; no value overflow; zero page errors.
+- Stability run (deep-time-max, unattended): PASS. Plurality persisted,
+  nothing overflowed, no errors.
+
+All three acceptance tests of §22 pass, along with determinism, the Phase 0
+distinctiveness gate, the literal-dial manifestation, and a full interaction
+sweep. The build is done by the definition in §23.
 
 - Headless Playwright + SwiftShader harness (`test.js` in scratchpad) routes
   the cdnjs three.js URL to a local copy, runs the sim at any speed, samples
