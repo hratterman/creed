@@ -135,6 +135,14 @@ body.watch #btnWatch:hover{opacity:1;}
 body.uihidden .hideable{opacity:0;pointer-events:none;}
 #hint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:#7a6a4a;font-size:11px;z-index:10;
   font-family:Georgia,serif;font-style:italic;pointer-events:none;}
+@media (max-width:880px){
+  #chronicle{width:260px;font-size:11px;}
+  #faithPanel{display:none;}
+  #miniTree{width:170px;height:90px;}
+}
+@media (max-width:640px){
+  #chronicle{display:none;}
+}
 </style>
 </head>
 <body>
@@ -2483,7 +2491,7 @@ function refreshOverlay(force){
     if(!col) continue;
     const x=(c.lon+180)/360*1024, y=(90-c.lat)/180*512;
     g.fillStyle=col;
-    g.beginPath();g.arc(x,y,cellR*(1+0.3),0,TAU);g.fill();
+    g.beginPath();g.arc(x,y,cellR*1.02,0,TAU);g.fill();
   }
   R3.ovTex.needsUpdate=true;
   R3.ovMesh.visible=overlayMode!=='terrain';
@@ -4106,7 +4114,7 @@ function frame(t){
     updateFronts();
     updateSky(dt);
     // the territory tint yields to the terrain as you descend
-    R3.ovMesh.material.opacity=0.5*clamp01((camAltitude()-PLANET_R*0.12)/(PLANET_R*0.25));
+    R3.ovMesh.material.opacity=0.42*clamp01((camAltitude()-PLANET_R*0.12)/(PLANET_R*0.25));
   } else { R3.dayPhase=(R3.dayPhase+dt*dayRate())%1; updateBubble(dt); }
   // render with crossfade dip
   const fade=CameraRig.fade;
