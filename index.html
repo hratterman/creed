@@ -127,8 +127,11 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:var(--parch
 #treeUI{position:absolute;top:52px;left:12px;z-index:30;display:none;gap:4px;}
 #treeUI .chip{font-size:11px;}
 .hideable{transition:opacity .3s;}
-body.watch .hideable{opacity:0;pointer-events:none;}
-body.watch #hudDate,body.watch #hudEra{opacity:1;}
+body.watch .hideable:not(#hud){opacity:0;pointer-events:none;}
+body.watch #hud{background:none;border-bottom-color:transparent;}
+body.watch #hudStats,body.watch #hudSeason,body.watch #speedBox,body.watch #btnTree{opacity:0;pointer-events:none;}
+body.watch #btnWatch{opacity:0.25;}
+body.watch #btnWatch:hover{opacity:1;}
 body.uihidden .hideable{opacity:0;pointer-events:none;}
 #hint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:#7a6a4a;font-size:11px;z-index:10;
   font-family:Georgia,serif;font-style:italic;pointer-events:none;}
@@ -819,8 +822,13 @@ function fResonance(f, s){ // how well faith f answers settlement s's present co
   r += c.oppression*((f.underground?0.5:0) + (v.cosmicTime>0.7?0.4:0) + v.asceticism*0.15);
   r += c.uprooting*(v.proselytizing*0.35 + v.textuality*0.4 - (f.placeBound?0.5:0));
   const comfort = s.prosperity*World.rates.prosperity;
-  r += clamp(comfort-0.55,0,0.6)*(v.wealthStance*0.35 + (v.theism===5?0.5:0) - v.asceticism*0.3 - v.purity*0.15);
-  r += s.literacy*(v.textuality*0.4 + (v.theism===5?0.6:0));
+  r += clamp(comfort-0.55,0,0.6)*(v.wealthStance*0.35 + (v.theism===5?0.35:0) - v.asceticism*0.3 - v.purity*0.15);
+  r += s.literacy*(v.textuality*0.4 + (v.theism===5?0.35:0));
+  // a creed with no altar has little to say to the dying (disenchantment's undoing)
+  if(v.theism===5) r -= (c.pestilence+c.famine+c.war)*0.5;
+  // and long quiet breeds its own hunger for meaning: revival pressure
+  if(World.disenchantActive && v.theism!==5 && f.originYear>World.disenchantYear-50)
+    r += 0.3 + (c.pestilence+c.famine+c.oppression)*0.3;
   if(f.disgraced>0) r -= f.disgraced;                       // the gods did not save us
   if(f.martyrGlow>0) r += f.martyrGlow;                     // blood is a seed
   return Math.max(0.02, r);
@@ -930,43 +938,97 @@ function drawSymbol(f){
   const ray=(a,r0,r1)=>{g.beginPath();g.moveTo(cx+Math.cos(a)*r0,cy+Math.sin(a)*r0);
     g.lineTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);g.stroke();};
   const dot=(x,y,r)=>{g.beginPath();g.arc(x,y,r,0,TAU);g.fill();};
+  const poly=(n,r,rot,close)=>{ g.beginPath();
+    for(let i=0;i<n;i++){ const a=i/n*TAU+rot;
+      const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r; i===0?g.moveTo(x,y):g.lineTo(x,y); }
+    if(close!==false)g.closePath(); g.stroke(); };
+  const star=(n,r0,r1,rot)=>{ g.beginPath();
+    for(let i=0;i<n*2;i++){ const a=i/(n*2)*TAU+rot, r=i%2?r0:r1;
+      const x=cx+Math.cos(a)*r,y=cy+Math.sin(a)*r; i===0?g.moveTo(x,y):g.lineTo(x,y); }
+    g.closePath(); g.stroke(); };
+  const vid=rintFrom(f.id*7+f.hue,0,2);   // stable per-faith variant
+  const rot=rintFrom(f.id*13,0,7)/8*TAU;
   // base form chosen from the vector
-  if(v.theism===5){ // secular: open eye or balanced line
-    g.lineWidth=3; g.beginPath(); g.moveTo(10,32); g.quadraticCurveTo(32,14,54,32);
-    g.quadraticCurveTo(32,50,10,32); g.stroke(); dot(cx,cy,6);
+  if(v.theism===5){ // secular: eye, balance, or open book
+    if(vid===0){ g.lineWidth=3; g.beginPath(); g.moveTo(10,32); g.quadraticCurveTo(32,14,54,32);
+      g.quadraticCurveTo(32,50,10,32); g.stroke(); dot(cx,cy,6); }
+    else if(vid===1){ g.lineWidth=3; g.beginPath(); g.moveTo(32,12); g.lineTo(32,46); g.stroke();
+      g.beginPath(); g.moveTo(14,20); g.lineTo(50,20); g.stroke();
+      g.beginPath(); g.arc(14,30,7,0,Math.PI); g.stroke(); g.beginPath(); g.arc(50,30,7,0,Math.PI); g.stroke(); }
+    else { g.lineWidth=2.5; g.beginPath(); g.moveTo(12,20); g.quadraticCurveTo(22,15,32,20);
+      g.quadraticCurveTo(42,15,52,20); g.lineTo(52,44); g.quadraticCurveTo(42,39,32,44);
+      g.quadraticCurveTo(22,39,12,44); g.closePath(); g.stroke();
+      g.beginPath(); g.moveTo(32,20); g.lineTo(32,44); g.stroke(); }
   } else if(v.theism===3||v.theism===2){ // one centered mark
     if(v.cosmicTime>0.7){ // flame or gate
-      g.beginPath(); g.moveTo(32,10); g.quadraticCurveTo(46,28,38,42);
-      g.quadraticCurveTo(36,50,32,54); g.quadraticCurveTo(28,50,26,42);
-      g.quadraticCurveTo(18,28,32,10); g.stroke();
-    } else if(v.iconography<0.3){ ring(17,4); ray(-Math.PI/2,17,27); }
-    else { ray(-Math.PI/2,4,26); ray(Math.PI/2,4,26); ray(0,4,20); ray(Math.PI,4,20); ring(9,3); }
-  } else if(v.theism===4){ // dualist: divided field
-    g.beginPath(); g.arc(cx,cy,20,-Math.PI/2,Math.PI/2); g.fill();
-    ring(20,3); dot(cx,cy-10,4); g.fillStyle=bg; dot(cx,cy+10,4);
-    g.fillStyle=fg;
-  } else if(v.theism===0){ // animist: tree, river, or sun
-    if(v.natureStance>0.6){ // tree
+      if(vid<2){ g.beginPath(); g.moveTo(32,10); g.quadraticCurveTo(46,28,38,42);
+        g.quadraticCurveTo(36,50,32,54); g.quadraticCurveTo(28,50,26,42);
+        g.quadraticCurveTo(18,28,32,10); g.stroke(); }
+      else { g.lineWidth=3.5; g.beginPath(); g.moveTo(18,52); g.lineTo(18,26);
+        g.quadraticCurveTo(32,8,46,26); g.lineTo(46,52); g.stroke();
+        g.beginPath(); g.moveTo(32,52); g.lineTo(32,32); g.stroke(); }
+    } else if(v.iconography<0.3){
+      if(vid===0){ ring(17,4); ray(rot-Math.PI/2,17,27); }
+      else if(vid===1){ star(v.theism===3?5:7,8,20,rot); }
+      else { poly(v.theism===3?3:4,18,rot); ring(7,2.5); }
+    }
+    else {
+      if(vid===0){ ray(-Math.PI/2,4,26); ray(Math.PI/2,4,26); ray(0,4,20); ray(Math.PI,4,20); ring(9,3); }
+      else if(vid===1){ ring(12,3); for(let i=0;i<8;i++) ray(i/8*TAU+rot,15,24); }
+      else { g.beginPath(); g.arc(cx,cy,16,0,TAU); g.stroke(); dot(cx,cy,5);
+        ray(-Math.PI/2,16,27); ray(Math.PI/2-0.5,16,24); ray(Math.PI/2+0.5,16,24); }
+    }
+  } else if(v.theism===4){ // dualist: divided field, crossed serpents, or split mountain
+    if(vid===0){ g.beginPath(); g.arc(cx,cy,20,-Math.PI/2+rot,Math.PI/2+rot); g.fill();
+      ring(20,3); const ox=Math.cos(rot)*10,oy=Math.sin(rot)*10;
+      dot(cx-oy,cy-ox,4); g.fillStyle=bg; dot(cx+oy,cy+ox,4); g.fillStyle=fg; }
+    else if(vid===1){ g.lineWidth=3;
+      g.beginPath(); g.moveTo(16,50); g.bezierCurveTo(10,30,40,34,44,14); g.stroke();
+      g.strokeStyle=gold;
+      g.beginPath(); g.moveTo(48,50); g.bezierCurveTo(54,30,24,34,20,14); g.stroke();
+      g.strokeStyle=fg; }
+    else { g.lineWidth=3; g.beginPath(); g.moveTo(10,50); g.lineTo(26,18); g.lineTo(32,30);
+      g.lineTo(38,18); g.lineTo(54,50); g.stroke(); dot(26,12,3); g.strokeStyle=gold; g.beginPath();
+      g.arc(38,12,3,0,TAU); g.stroke(); g.strokeStyle=fg; }
+  } else if(v.theism===0){ // animist: tree, river, spiral, or mountain-and-sun
+    if(v.natureStance>0.66){ // tree
       g.beginPath(); g.moveTo(32,54); g.lineTo(32,30); g.stroke();
       for(const a of [-0.9,-0.45,0.45,0.9]) { g.beginPath(); g.moveTo(32,34+Math.abs(a)*8);
         g.quadraticCurveTo(32+a*18,26,32+a*22,14+Math.abs(a)*6); g.stroke(); }
       dot(32,54,3);
+    } else if(v.natureStance>0.33&&vid!==1){ // river between banks
+      g.lineWidth=3;
+      for(const off of [-8,0,8]){ g.beginPath(); g.moveTo(12,26+off);
+        g.bezierCurveTo(26,20+off,38,32+off,52,26+off); g.stroke(); }
+    } else if(vid===2){ // mountain and sun
+      g.lineWidth=3; g.beginPath(); g.moveTo(8,50); g.lineTo(24,26); g.lineTo(34,40);
+      g.lineTo(42,30); g.lineTo(56,50); g.stroke();
+      g.beginPath(); g.arc(46,16,6,0,TAU); g.stroke();
     } else { // spiral (the living current)
       g.beginPath();
       for(let t=0;t<4.6;t+=0.1){ const r=3+t*4.6;
-        const x=cx+Math.cos(t*1.6)*r, y=cy+Math.sin(t*1.6)*r;
+        const x=cx+Math.cos(t*1.6+rot)*r, y=cy+Math.sin(t*1.6+rot)*r;
         t===0?g.moveTo(x,y):g.lineTo(x,y); }
       g.stroke();
     }
-  } else { // polytheist / henotheist: cluster or wheel
-    ring(19,3);
-    const n=v.theism===1?rintFrom(f.id,5,8):3;
-    for(let i=0;i<n;i++){ const a=i/n*TAU-Math.PI/2; ray(a,19,27); dot(cx+Math.cos(a)*12,cy+Math.sin(a)*12,3); }
+  } else { // polytheist / henotheist: cluster, wheel, or crescent court
+    if(vid===0){ ring(19,3);
+      const n=v.theism===1?rintFrom(f.id,5,8):3;
+      for(let i=0;i<n;i++){ const a=i/n*TAU-Math.PI/2+rot; ray(a,19,27); dot(cx+Math.cos(a)*12,cy+Math.sin(a)*12,3); } }
+    else if(vid===1){ const n=v.theism===1?rintFrom(f.id,5,7):4;
+      for(let i=0;i<n;i++){ const a=i/n*TAU+rot; dot(cx+Math.cos(a)*15,cy+Math.sin(a)*15,4.5); }
+      ring(6,2.5); }
+    else { g.lineWidth=3.5; g.beginPath(); g.arc(cx,cy,16,rot+0.6,rot+TAU-0.6); g.stroke();
+      dot(cx+Math.cos(rot)*22,cy+Math.sin(rot)*22,4); }
   }
-  // modifiers
+  // modifiers: the vector's secondary truths, legible at a glance
   if(v.pilgrimage>0.7){ g.strokeStyle=gold; g.lineWidth=2; ring(29,2); }
   if(v.sacrifice>=2){ g.fillStyle=hslCss((f.hue+180)%360,0.6,0.6); dot(cx,56,3); }
   if(v.mysticism>0.75){ g.strokeStyle=fg; g.lineWidth=1.5; ring(24,1.5); }
+  if(v.moralSource===0&&v.theism<5){ g.fillStyle=gold; dot(cx,8,2.4); }
+  if(v.violenceStance>0.8){ g.strokeStyle=fg; g.lineWidth=2;
+    g.beginPath(); g.moveTo(6,58); g.lineTo(14,50); g.stroke();
+    g.beginPath(); g.moveTo(58,58); g.lineTo(50,50); g.stroke(); }
   f.symbolURL = cv.toDataURL();
   return cv;
 }
@@ -1002,17 +1064,13 @@ function drawPlate(f){
   // facts
   g.textAlign='left'; g.font='12px Georgia'; g.fillStyle='#4a3a26';
   let y=205;
-  const fact=(k,val)=>{ g.fillStyle='#8a6d1d'; g.fillText(k, 30, y);
-    g.fillStyle='#2a2016'; y=wrapText(g,val,30,y+14,280,14)+8; };
+  const fact=(k,val)=>{ g.font='10px Georgia'; g.fillStyle='#8a6d1d'; g.fillText(k, 30, y);
+    g.font='12px Georgia'; g.fillStyle='#2a2016'; y=wrapText(g,val,30,y+14,280,14)+22; };
   fact('COSMOLOGY', THEISM[f.vector.theism]+'; creation: '+CREATION[f.vector.creation]);
   fact('THE DEAD', AFTERLIFE[f.vector.afterlife]);
-  for(const t of f.tenets.slice(0,3)) fact('TENET', t);
-  g.fillStyle='#8a6d1d'; g.fillText('FOUNDED', 30, y);
-  g.fillStyle='#2a2016';
-  g.fillText(fmtYear(f.originYear)+(f.founderName?(', by '+f.founderName):''), 30, y+14);
-  y+=34;
-  g.fillStyle='#8a6d1d'; g.fillText('ADHERENTS', 30, y);
-  g.fillStyle='#2a2016'; g.fillText(f.deadYear?('none since '+fmtYear(f.deadYear)):fmtNum(f.adherents), 30, y+14);
+  for(const t of f.tenets.slice(0,2)) fact('TENET', t);
+  fact('FOUNDED', fmtYear(f.originYear)+(f.founderName?(', by '+f.founderName):''));
+  fact('ADHERENTS', f.deadYear?('none since '+fmtYear(f.deadYear)):fmtNum(f.adherents));
   f.plate=cv;
   return cv;
 }
@@ -1135,10 +1193,14 @@ function settlementTick(dt,H){
     const base = BIOME_HAB[c.biome]*0.5 + (c.road>0?0.12:0) + (s.kind==='capital'?0.15:0);
     s.prosperity = clamp01(s.prosperity + (base*World.rates.prosperity - s.prosperity)*0.02*dt
       - (s.cond.war+s.cond.pestilence+s.cond.famine)*0.06*dt);
-    const growth = (0.0035*s.prosperity - 0.004*(s.cond.pestilence+s.cond.famine) - 0.002*s.cond.war)*dt;
+    const cap = 500 + habScore(c)*9000*(s.kind==='capital'?2.2:s.kind==='town'?1.3:1);
+    const growth = (0.004*s.prosperity*(1-s.pop/cap) - 0.004*(s.cond.pestilence+s.cond.famine) - 0.002*s.cond.war)*dt;
     s.pop = Math.max(40, s.pop*(1+growth));
-    s.literacy = clamp01(s.literacy + (0.0004 + 0.0012*s.prosperity)*World.rates.literacy*dt
-      * (0.4 + maxTextualityAt(s)) - 0.0003*dt*(s.cond.war+s.cond.famine));
+    // letters are hard-won and easily lost; they saturate well short of everyone
+    const litCeil = 0.25 + s.prosperity*0.55;
+    s.literacy = clamp01(s.literacy
+      + (0.0006 + 0.0012*s.prosperity)*World.rates.literacy*dt*(0.4+maxTextualityAt(s))*clamp01(1-s.literacy/litCeil)
+      - 0.0012*dt*(s.cond.war+s.cond.famine+Math.max(0,0.3-s.prosperity)));
     s.unrest = clamp01(s.unrest*Math.pow(0.97,dt) + (s.cond.oppression*0.02+s.cond.famine*0.02)*dt);
   }
 }
@@ -1219,10 +1281,15 @@ function spreadTick(dt,H){
   const pressures = {};
   for(const s of World.settlements){
     const pr = {};
-    // retention: inheritance times stickiness times resonance
+    // retention: inheritance times stickiness times resonance, with a
+    // homeland bond (an ethnic faith holds its own people hardest) and a
+    // complacency tax on the worldly
     for(const k in s.pool){
       const f=World.faiths[k]; if(!f||f.deadYear){ continue; }
-      pr[k]=(pr[k]||0) + s.pool[k]*(0.55 + fSticky(f)*0.5)*(0.6 + fResonance(f,s)*0.55);
+      let ret = s.pool[k]*(0.55 + fSticky(f)*0.5)*(0.6 + fResonance(f,s)*0.55);
+      if(f.culture===s.culture && f.vector.proselytizing<0.4) ret*=1.12;
+      if(f.worldly) ret*=(1-Math.min(0.25,f.worldly));
+      pr[k]=(pr[k]||0)+ret;
     }
     // conversion along roads and adjacency
     for(const e of (World.roadAdj[s.id]||[])){
@@ -1238,7 +1305,7 @@ function spreadTick(dt,H){
       }
     }
     // trade seeding: arteries leap faiths into distant markets
-    if(H()<0.02*dt){
+    if(H()<0.006*dt){
       const roads=(World.roadAdj[s.id]||[]).filter(e=>e.artery);
       if(roads.length){
         const far=rpick(H,World.settlements);
@@ -2153,7 +2220,7 @@ function initRenderer(){
 }
 
 function buildGlobe(){
-  const g=new THREE.IcosahedronGeometry(PLANET_R,5);
+  const g=new THREE.IcosahedronGeometry(PLANET_R,6);
   const pos=g.attributes.position;
   const colors=new Float32Array(pos.count*3);
   const tmp=new THREE.Vector3();
@@ -2166,9 +2233,9 @@ function buildGlobe(){
     let col;
     if(e<=0) col=BIOME_COL[c&&c.temp<-8?BIOME.ICE:BIOME.OCEAN];
     else col=BIOME_COL[c?c.biome:BIOME.GRASS];
-    // painterly variation
-    const v=0.94+SIMPLEX2(tmp.x*9,tmp.y*9,tmp.z*9)*0.09;
-    colors[i*3]=col[0]*v; colors[i*3+1]=col[1]*v; colors[i*3+2]=col[2]*v;
+    // painterly variation, brightened for the jewel-toned register
+    const v=(0.94+SIMPLEX2(tmp.x*9,tmp.y*9,tmp.z*9)*0.09)*(e<=0?1:1.28);
+    colors[i*3]=Math.min(1,col[0]*v); colors[i*3+1]=Math.min(1,col[1]*v); colors[i*3+2]=Math.min(1,col[2]*v);
     if(e>0.45){ const s=clamp01((e-0.45)/0.2); // snowcaps
       colors[i*3]=lerp(colors[i*3],0.92,s); colors[i*3+1]=lerp(colors[i*3+1],0.93,s); colors[i*3+2]=lerp(colors[i*3+2],0.97,s); }
   }
@@ -2178,7 +2245,7 @@ function buildGlobe(){
   R3.scene.add(R3.globe);
   // ocean
   R3.ocean=new THREE.Mesh(new THREE.IcosahedronGeometry(PLANET_R+0.02,4),
-    new THREE.MeshPhongMaterial({color:0x1c3a5e,transparent:true,opacity:0.82,shininess:80,specular:0x334466}));
+    new THREE.MeshPhongMaterial({color:0x2a5a8e,transparent:true,opacity:0.78,shininess:90,specular:0x557799}));
   R3.scene.add(R3.ocean);
   // faith overlay: equirect canvas texture on a slightly larger shell
   R3.ovCanvas=document.createElement('canvas'); R3.ovCanvas.width=1024; R3.ovCanvas.height=512;
@@ -2244,7 +2311,7 @@ function buildSettlementMarkers(){
     const s=World.settlements[i], c=World.cells[s.cell];
     const p=cellSurfacePos(c,0.1);
     q.setFromUnitVectors(up,c.p);
-    const k=s.kind==='capital'?1.6:s.kind==='town'?1.1:0.7;
+    const k=(s.kind==='capital'?1.6:s.kind==='town'?1.1:0.7)*1.5;
     sc.set(k,k,k);
     m.compose(p,q,sc);
     R3.towns.setMatrixAt(i,m);
@@ -2356,10 +2423,42 @@ function refreshOverlay(force){
   if(R3.temples.instanceColor) R3.temples.instanceColor.needsUpdate=true;
 }
 
-/* ---------- fronts: moving points along roads ---------- */
+/* ---------- fronts & flows: moving points along roads ----------
+   Transient fronts (a mission, an army sent) interpolate in sim time.
+   Standing flows (pilgrim arteries, active war roads) are derived from
+   state and animate in real time, so they read at any sim speed. */
+let flowCache={at:-1,flows:[]};
+function computeFlows(){
+  const now=performance.now()/1000;
+  if(now-flowCache.at<20) return flowCache.flows;
+  flowCache.at=now;
+  const flows=[];
+  const pil=livingFaiths().filter(f=>f.vector.pilgrimage>0.55&&f.adherents>2500&&f.holySiteSet>=0)
+    .sort((a,b)=>b.adherents-a.adherents).slice(0,5);
+  for(const f of pil){
+    const srcs=World.settlements.filter(s=>(s.pool[f.id]||0)>0.3&&s.id!==f.holySiteSet)
+      .sort((a,b)=>(b.pool[f.id]||0)*b.pop-(a.pool[f.id]||0)*a.pop).slice(0,2);
+    for(const s of srcs){
+      const path=findRoadPath(s.id,f.holySiteSet);
+      if(path&&path.length>2) flows.push({path,f,kind:'pilgrimage',n:6});
+    }
+  }
+  for(const civ of World.civs){
+    if(civ.warWith>=0&&civ.id<civ.warWith){
+      const f=World.faiths[civ.stateFaith];
+      if(!f) continue;
+      const path=findRoadPath(World.cultures[civ.culture].capital,
+        World.cultures[World.civs[civ.warWith].culture].capital);
+      if(path&&path.length>2) flows.push({path,f,kind:'army',n:6});
+    }
+  }
+  flowCache.flows=flows;
+  return flows;
+}
 function updateFronts(){
   World.fronts=World.fronts.filter(f=>World.year<f.t1+1);
   const list=[];
+  const rt=performance.now()/1000;
   for(const fr of World.fronts){
     const f=World.faiths[fr.faithId];
     if(!f) continue;
@@ -2372,6 +2471,16 @@ function updateFronts(){
       const p=a.p.clone().lerp(b.p,idx%1).normalize();
       const e=Math.max(0,elevAt(p));
       list.push({p:p.multiplyScalar(PLANET_R+e*7+0.5),f,kind:fr.kind});
+    }
+  }
+  for(const fl of computeFlows()){
+    for(let i=0;i<fl.n;i++){
+      const tt=((rt*0.045)+(i/fl.n))%1;
+      const idx=tt*(fl.path.length-1);
+      const a=World.cells[fl.path[Math.floor(idx)]], b=World.cells[fl.path[Math.min(fl.path.length-1,Math.ceil(idx))]];
+      const p=a.p.clone().lerp(b.p,idx%1).normalize();
+      const e=Math.max(0,elevAt(p));
+      list.push({p:p.multiplyScalar(PLANET_R+e*7+0.5),f:fl.f,kind:fl.kind});
     }
   }
   if(!R3.frontPts||R3.frontCap<list.length){
@@ -2447,12 +2556,22 @@ function drawFaithLabels(g){
 
 /* ---------- sky & time of day ---------- */
 let cometPhase=0;
+R3.dayPhase=0.32;   // visual day cycle, advanced in real time so it never flickers
+function dayRate(){ return [0,0.010,0.028,0,0][World.speed]||0; }
 function updateSky(dtReal){
-  // sun swings slowly; at human speeds it carries day and night
-  const dayFrac=(World.year*365.25)%1;
-  const a=dayFrac*TAU;
-  const sd=v3(Math.cos(a)*300,Math.sin(a*0.7)*80+60,Math.sin(a)*300);
-  R3.sun.position.copy(World.speed<=2?sd:v3(300,120,200));
+  R3.dayPhase=(R3.dayPhase+dtReal*dayRate())%1;
+  // the globe rides a standing golden hour that always lights the viewed
+  // face; true day and night belong to the bubble, where the lamps are.
+  {
+    const cd=R3.camera.position.clone().normalize();
+    const east=v3(0,1,0).cross(cd).normalize();
+    if(east.lengthSq()<0.01) east.set(1,0,0);
+    R3.sun.position.copy(cd.multiplyScalar(280).add(east.multiplyScalar(150)).add(v3(0,80,0)));
+    if(World.speed<=2){
+      const sunH=Math.sin(R3.dayPhase*TAU);
+      R3.sites.material.size=6+clamp01(-sunH+0.3)*4;   // shrine lamps swell toward evening
+    }
+  }
   const omen=World.omens.find(o=>o.kind==='comet');
   if(omen){
     R3.comet.visible=true;
@@ -2460,7 +2579,8 @@ function updateSky(dtReal){
     R3.comet.position.copy(v3(Math.cos(cometPhase)*600,300,Math.sin(cometPhase)*600));
   } else R3.comet.visible=false;
   const ecl=World.omens.find(o=>o.kind==='eclipse');
-  R3.sun.intensity=ecl?0.35:1.15;
+  if(ecl) R3.sun.intensity=0.3;
+  else if(World.speed>2) R3.sun.intensity=1.15;
   const red=World.omens.find(o=>o.kind==='redmoon');
   R3.scene.background.setHex(red?0x120608:0x05060e);
 }
@@ -2861,8 +2981,8 @@ function updateBubble(dtReal){
     Bubble.crowd.setMatrixAt(i,m);
   }
   Bubble.crowd.instanceMatrix.needsUpdate=true;
-  // day and night
-  const dayFrac=(World.year*365.25)%1;
+  // day and night (shares the real-time day phase with the globe)
+  const dayFrac=R3.dayPhase;
   const sunH=Math.sin(dayFrac*TAU);
   if(World.speed<=2){
     Bubble.sun.position.set(Math.cos(dayFrac*TAU)*80,Math.max(6,sunH*90),40);
@@ -3186,11 +3306,15 @@ function drawTree(target){
       g.beginPath();g.moveTo(x1,y-4);g.lineTo(x1,y+4);g.stroke();
     }
     if(!mini){
-      g.drawImage(f.symbol,x0-9,y-22,18,18);
-      g.fillStyle=f.deadYear?'#7a6a52':'#e8dcb8';
-      g.font=(f.adherents>totalPop()*0.2?'13px':'11px')+' Georgia';
-      g.textAlign='left';
-      g.fillText(f.name,x0+12,y-8);
+      const len=x1-x0;
+      const major=!f.deadYear||f.peakAdherents>totalPop()*0.03;
+      if(len>18||major) g.drawImage(f.symbol,x0-9,y-22,18,18);
+      if(len>60||major){
+        g.fillStyle=f.deadYear?'#7a6a52':'#e8dcb8';
+        g.font=(f.adherents>totalPop()*0.2?'13px':'11px')+' Georgia';
+        g.textAlign='left';
+        g.fillText(f.name,x0+12,y-8);
+      }
       treeNodes.push({x0,x1,y,f});
     }
   }
@@ -3242,6 +3366,19 @@ function directorTick(now,dtReal){
   if(Director.active){
     runBeat(Director.active,now,dtReal);
     return;
+  }
+  // at human speeds, an idle director stages sacred life itself
+  if(World.speed>=1&&World.speed<=2&&now>Director.idleAt+8&&RNG.H()<dtReal*0.06){
+    const cands=World.settlements.filter(s=>dominantFaith(s)!==null&&s.pop>800);
+    if(cands.length){
+      const s=rpick(RNG.H,cands);
+      const f=World.faiths[dominantFaith(s)];
+      const kind=rweighted(RNG.H,['prayer','festival','funeral','sermon','procession'],
+        k=>k==='festival'?f.rite.festivalScale+0.1:k==='procession'?(f.rite.procession?0.5:0.05):0.3);
+      emitEvent('rite',6,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
+        {faithId:f.id,setId:s.id,filter:'all',hold:true});
+      return;
+    }
   }
   // idle: golden-hour drift between holy cities
   if(now>Director.idleAt){
@@ -3573,6 +3710,13 @@ function updateHUD(){
   const live=livingFaiths();
   let holy='';
   if(World.speed<=2){
+    // a holy-day glyph when any large faith's calendar is in festival season
+    for(const f of live){
+      if(f.vector.sacredCalendar>0.45&&f.adherents>1000){
+        const phase=(World.year+f.id*0.37)%1;
+        if(phase<0.06){ holy=' · ✦ holy days of '+f.coreName; break; }
+      }
+    }
     document.getElementById('hudSeason').textContent=['❀ spring','☀ summer','⚘ autumn','❄ winter'][seasonIdx]+holy;
   } else document.getElementById('hudSeason').textContent='';
   const dom=live.slice().sort((a,b)=>b.adherents-a.adherents)[0];
@@ -3752,7 +3896,9 @@ function frame(t){
     if(now-lastOverlayAt>0.8){ lastOverlayAt=now; refreshOverlay(); }
     updateFronts();
     updateSky(dt);
-  } else updateBubble(dt);
+    // the territory tint yields to the terrain as you descend
+    R3.ovMesh.material.opacity=0.5*clamp01((camAltitude()-PLANET_R*0.12)/(PLANET_R*0.25));
+  } else { R3.dayPhase=(R3.dayPhase+dt*dayRate())%1; updateBubble(dt); }
   // render with crossfade dip
   const fade=CameraRig.fade;
   R3.renderer.domElement.style.filter=fade>0?`brightness(${1-fade*0.95})`:'';
