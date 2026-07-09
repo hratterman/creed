@@ -43,6 +43,33 @@ Running log of decisions made while implementing the spec end to end.
   the computed distribution rather than jumping); cull threshold lowered so
   minorities persist; prophet base rate roughly doubled.
 
+## Later decisions
+- Day and night: the globe holds a standing golden hour that tracks the
+  camera (a fixed terminator kept flying the viewer into unreadable darkness);
+  the true day/night cycle lives in the bubble, where lamps, moonrise, and
+  festival bonfires make night worth watching. Eclipses still dim the sun and
+  a red moon still tints the sky at both scales.
+- Presentation-layer chance (ambient rite choice, director timing, chronicle
+  wording) draws from Math.random, never from the history stream, so watching
+  the world cannot alter its history. Same seed, same acts, same rates give
+  the same event sequence; the wording of entries may vary between runs.
+- Divine manifestation (Literal dial) has two roads: a fulfilled apocalyptic
+  prophecy, or accumulated devotion (share above 0.42 of all souls and high
+  ritual density, purity, martyr fervor). It rewrites the era, doubles the
+  faith's pools, disgraces rivals, and renders as a pillar of light over the
+  holy city and a colossal figure in the bubble.
+- Legitimacy is a divine-mandate meter: state faith at odds with the capital,
+  famine, or a disgraced church erode it; below 0.18 the ruler falls and the
+  coronation rite is rewritten by morning.
+- The optional "Illuminate this entry" button appears only when
+  window.claude.complete exists (artifact host) and falls back to a local
+  scholarly line on any failure. The static build never shows it.
+- HEARTH houses/factions are simplified to per-generation notables shown in
+  the settlement inspector, plus named rulers with traits; lineages did not
+  earn their complexity against the four pillars.
+- Aurora: two slow additive rings over the poles; comets are sprites read as
+  omens; the manifested god and festival bonfires are the only point lights.
+
 ## Verification
 - Headless Playwright + SwiftShader harness (`test.js` in scratchpad) routes
   the cdnjs three.js URL to a local copy, runs the sim at any speed, samples

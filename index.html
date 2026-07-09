@@ -1677,6 +1677,18 @@ function politicsTick(dt,H){
     const domCap=dominantFaith(cap);
     civ.legitimacy=clamp01(civ.legitimacy + (sf&&domCap===civ.stateFaith?0.01:-0.012)*dt
       - cap.cond.famine*0.02*dt - (sf&&sf.disgraced>0.3?0.02:0)*dt);
+    // a mandate can be lost: the crown falls when heaven withdraws its hand
+    if(civ.legitimacy<0.18&&H()<0.2*dt){
+      const old=World.figures[civ.ruler];
+      old.alive=false;
+      const fig=makeFigure(H,'ruler',domCap??-1,cap.id);
+      civ.ruler=fig.id; civ.rulerSince=World.year; civ.legitimacy=0.55;
+      const flipped=domCap!==null&&domCap!==civ.stateFaith;
+      if(flipped) civ.stateFaith=domCap;
+      cap.unrest=clamp01(cap.unrest+0.3);
+      emitEvent('deposed',6,chronDeposed(old,fig,civ,sf,flipped?World.faiths[domCap]:null),
+        {setId:cap.id,filter:'war'});
+    }
     // persecution: an exclusive state faith moves against minorities
     if(sf && !sf.deadYear && sf.vector.exclusivity>0.62/Math.max(0.4,World.rates.tolerance) && H()<0.01*dt*World.rates.statePower){
       const minority=Object.entries(cap.pool).filter(([k,v])=>+k!==civ.stateFaith&&v>0.12&&World.faiths[k]&&!World.faiths[k].deadYear);
@@ -1843,6 +1855,30 @@ function upheavalsTick(dt,H){
       emitEvent('revival',8,chronRevival(),{filter:'found',wantsMontage:true});
     } else if(World.year-World.disenchantYear>500) World.disenchantActive=false;
   }
+  // the dragon-beat: on the literal dial, a faith fervent enough and vast
+  // enough can call its god into the world
+  if(L===2&&(!World.manifestUntil||World.year>World.manifestUntil+800)){
+    for(const f of livingFaiths()){
+      if(f.vector.theism===5) continue;
+      const share=f.adherents/Math.max(1,totalPop());
+      const devotion=share*(f.vector.ritualDensity+f.martyrGlow+f.vector.purity);
+      if(share>0.42&&devotion>0.75&&H()<0.004*dt){
+        World.manifestUntil=World.year+30;
+        World.manifestFaith=f.id;
+        f.martyrGlow=0.9; f.disgraced=0;
+        for(const s of World.settlements){
+          if(s.pool[f.id]) s.pool[f.id]=Math.min(1,s.pool[f.id]*2.2);
+          s.cond.uprooting=clamp01(s.cond.uprooting+0.2);   // the world is remade
+        }
+        for(const o of livingFaiths()) if(o.id!==f.id&&o.vector.theism!==5)
+          o.disgraced=Math.min(0.9,o.disgraced+0.4);
+        World.eraName='The Coming of '+(f.deity||f.coreName); World.eraStart=World.year;
+        emitEvent('era',5,null,{era:World.eraName});
+        emitEvent('manifest',10,chronGodComes(f),{faithId:f.id,setId:f.holySiteSet,filter:'sign',wantsMontage:false,hold:true});
+        break;
+      }
+    }
+  }
   // signs in the sky
   if(H()<0.008*dt*World.rates.upheaval){
     const kind=rpick(H,['comet','eclipse','redmoon']);
@@ -1910,7 +1946,7 @@ function emitEvent(cls,priority,text,opts){
   else if(o.era) chronAppendEra(o.era);
 }
 const H_=()=>RNG.H;
-const pickT=(arr)=>arr[Math.floor(RNG.H()*arr.length)];
+const pickT=(arr)=>arr[Math.floor(Math.random()*arr.length)];   // wording is presentation, not history
 
 /* ---------- template grammar, scholarly and evenhanded ---------- */
 function faithRef(f){ return f.name; }
@@ -2060,6 +2096,16 @@ function chronOmen(kind){
     `${what.charAt(0).toUpperCase()+what.slice(1)}, and every faith explained it, each differently, each with confidence.`
   ]);
 }
+function chronGodComes(f){
+  return pickT([
+    `In this year the devotion of ${f.name} was answered. ${f.deity||'The promised one'} came, and was seen, and the seeing is attested in every archive that survives, friendly and hostile alike. The historian's craft ends at this entry and resumes, shaken, after it.`,
+    `What the believers of ${f.name} had prayed toward for generations occurred. The record does not argue about it; the record simply changes, everywhere, at once.`
+  ]);
+}
+function chronDeposed(old,fig,civ,sf,newFaith){
+  if(newFaith) return `The mandate left ${old.name} of ${civ.name}, as the priests had warned it would, and the crowd finished what the priests began. ${fig.name} took the throne under the signs of ${newFaith.name}, and the coronation rite was rewritten by morning.`;
+  return `${old.name} of ${civ.name} was deposed in this year, the harvests and the auguries having both gone against the throne. ${fig.name} succeeded, promising the gods better attention.`;
+}
 function chronPhilosophy(fig,f,s){
   return pickT([
     `At ${s.name}, where the libraries had grown taller than the shrines, ${fig.name} began to teach that the world requires no god at all. The teaching was named ${f.name}, and it spread as faiths spread, along the roads, by the book, on the lips of the confident.`,
@@ -2101,6 +2147,16 @@ function chronAppend(ev){
   const t=ev.text;
   div.innerHTML=`<div class="yr">${fmtYear(ev.year)}</div><span class="dropcap">${t.charAt(0)}</span>${escapeHtml(t.slice(1))}`;
   div.onclick=()=>flyToEvent(ev);
+  // optional enhancement when running where the Anthropic API is exposed
+  // (a Claude artifact): expand one entry into a fuller scholarly note
+  if(typeof window!=='undefined'&&window.claude&&typeof window.claude.complete==='function'){
+    const btn=document.createElement('span');
+    btn.textContent=' ✦';
+    btn.title='Illuminate this entry';
+    btn.style.cssText='cursor:pointer;color:#c9a227;';
+    btn.onclick=(e)=>{ e.stopPropagation(); illuminateEntry(ev,div,btn); };
+    div.appendChild(btn);
+  }
   el.appendChild(div);
   while(el.children.length>250) el.removeChild(el.firstChild);
   const nearBottom = el.scrollHeight-el.scrollTop-el.clientHeight<160;
@@ -2112,6 +2168,25 @@ function chronAppendEra(name){
   div.className='chronEra'; div.textContent=name;
   el.appendChild(div);
   el.scrollTop=el.scrollHeight;
+}
+async function illuminateEntry(ev,div,btn){
+  btn.textContent=' …';
+  const f=ev.faithId!==undefined?World.faiths[ev.faithId]:null;
+  const context=f?` The faith concerned, ${f.name}, holds: ${f.tenets.join('; ')}.`:'';
+  const fallback=()=>{
+    const extra=' Later scholarship adds little, except to note that the local tradition remembered the event differently in every generation, and that each remembering tells us more about the rememberers than the event.';
+    div.insertBefore(document.createTextNode(extra),btn);
+    btn.remove();
+  };
+  try{
+    const prompt=`You are a far-future philologist reconstructing the spiritual history of an invented world from scripture, inscription, and ruin. Expand the following chronicle entry into one additional scholarly paragraph (3 to 4 sentences), in the same measured, evenhanded voice. Do not use em dashes. Entry: "${ev.text}"${context}`;
+    const resp=await window.claude.complete(prompt);
+    const text=typeof resp==='string'?resp:(resp&&resp.completion)||'';
+    if(text.trim()){
+      div.insertBefore(document.createTextNode(' '+text.trim().replace(/—/g,', ')),btn);
+      btn.remove();
+    } else fallback();
+  }catch(e){ fallback(); }
 }
 function chronRebuild(){
   const el=chronScrollEl(); el.innerHTML='';
@@ -2583,6 +2658,38 @@ function updateSky(dtReal){
   else if(World.speed>2) R3.sun.intensity=1.15;
   const red=World.omens.find(o=>o.kind==='redmoon');
   R3.scene.background.setHex(red?0x120608:0x05060e);
+  // a divine manifestation stands as a pillar of light over the holy city
+  const manifest=World.manifestUntil&&World.year<World.manifestUntil&&World.faiths[World.manifestFaith];
+  if(manifest){
+    if(!R3.pillar){
+      R3.pillar=new THREE.Mesh(new THREE.CylinderGeometry(1.2,2.6,60,8,1,true),
+        new THREE.MeshBasicMaterial({color:0xfff2c0,transparent:true,opacity:0.5,
+          blending:THREE.AdditiveBlending,depthWrite:false,side:THREE.DoubleSide}));
+      R3.scene.add(R3.pillar);
+    }
+    const f=World.faiths[World.manifestFaith];
+    const s=World.settlements[f.holySiteSet>=0?f.holySiteSet:0];
+    const c=World.cells[s.cell];
+    R3.pillar.position.copy(cellSurfacePos(c,30));
+    R3.pillar.quaternion.setFromUnitVectors(v3(0,1,0),c.p);
+    R3.pillar.material.opacity=0.35+Math.sin(performance.now()/300)*0.15;
+    R3.pillar.visible=true;
+  } else if(R3.pillar) R3.pillar.visible=false;
+  // aurora over the poles
+  if(!R3.aurora){
+    R3.aurora=[];
+    for(const pole of [1,-1]){
+      const geo=new THREE.TorusGeometry(PLANET_R*0.42,PLANET_R*0.05,2,40);
+      const m=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:pole>0?0x50d890:0x6890e8,
+        transparent:true,opacity:0.12,blending:THREE.AdditiveBlending,depthWrite:false}));
+      m.position.y=pole*PLANET_R*0.94; m.rotation.x=Math.PI/2;
+      R3.scene.add(m); R3.aurora.push(m);
+    }
+  }
+  for(let i=0;i<R3.aurora.length;i++){
+    R3.aurora[i].material.opacity=0.08+Math.sin(performance.now()/1700+i*2)*0.05;
+    R3.aurora[i].rotation.z+=dtReal*0.05;
+  }
 }
 /* ============================================================
    Section: the bubble. HEARTH made sacred: one settlement built
@@ -2655,7 +2762,8 @@ function enterBubble(setId){
   }
   gg.setAttribute('color',new THREE.BufferAttribute(gc,3));
   gg.computeVertexNormals();
-  Bubble.group.add(new THREE.Mesh(gg,new THREE.MeshLambertMaterial({vertexColors:true})));
+  Bubble.groundMat=new THREE.MeshLambertMaterial({vertexColors:true});
+  Bubble.group.add(new THREE.Mesh(gg,Bubble.groundMat));
   // ---- square + temple of the dominant faith ----
   const dom=dominantFaith(s);
   const f=dom!==null?World.faiths[dom]:null;
@@ -2721,6 +2829,30 @@ function enterBubble(setId){
     Bubble.crowd.setColorAt(i,cc);
   }
   Bubble.group.add(Bubble.crowd);
+  // ---- the manifested god, if this is its holy city on the literal dial ----
+  if(World.manifestUntil&&World.year<World.manifestUntil&&World.manifestFaith!==undefined){
+    const mf=World.faiths[World.manifestFaith];
+    if(mf&&(mf.holySiteSet===setId)){
+      const gg2=new THREE.Group();
+      const gm=new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(mf.hue/360,0.5,0.8),
+        transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
+      const body2=new THREE.Mesh(new THREE.CylinderGeometry(2.4,4.5,26,8),gm); body2.position.y=13; gg2.add(body2);
+      const head2=new THREE.Mesh(new THREE.SphereGeometry(2.6,10,8),gm); head2.position.y=29; gg2.add(head2);
+      const halo=new THREE.Mesh(new THREE.TorusGeometry(4.2,0.35,6,24),gm); halo.position.y=29; halo.rotation.x=0.4; gg2.add(halo);
+      gg2.position.set(0,0,-26);
+      Bubble.group.add(gg2);
+      Bubble.god=gg2;
+    }
+  }
+  // ---- moon ----
+  const moonCv=document.createElement('canvas'); moonCv.width=moonCv.height=64;
+  const mg=moonCv.getContext('2d');
+  const mgr=mg.createRadialGradient(32,32,4,32,32,30);
+  mgr.addColorStop(0,'rgba(230,235,255,1)'); mgr.addColorStop(0.5,'rgba(210,220,250,0.9)'); mgr.addColorStop(1,'rgba(210,220,250,0)');
+  mg.fillStyle=mgr; mg.fillRect(0,0,64,64);
+  Bubble.moon=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(moonCv),transparent:true}));
+  Bubble.moon.scale.set(18,18,1);
+  Bubble.group.add(Bubble.moon);
   // ---- night lamps ----
   Bubble.lampMat=new THREE.MeshBasicMaterial({color:0xffc868,transparent:true,opacity:0});
   const lampG=new THREE.SphereGeometry(0.16,5,4);
@@ -2752,6 +2884,8 @@ function disposeBubbleContent(){
       if(o.material&&o.material.dispose) o.material.dispose(); });
     Bubble.group=null;
   }
+  Bubble.god=null; Bubble.moon=null; Bubble.groundMat=null;
+  Bubble.pyre=null; Bubble.fire=null; Bubble.idol=null; Bubble.temple=null; Bubble.altar=null;
   Bubble.built=false;
 }
 
@@ -2860,8 +2994,11 @@ function buildRuin(at,B){
 
 /* ---------- the choreographer ---------- */
 const RITES=['prayer','procession','sermon','funeral','festival','sacrifice','wedding'];
+// presentation-layer chance: what the camera happens to see must never
+// consume the history stream, or watching would alter the world
+const PRES=()=>Math.random();
 let ambientRiteAt=0;
-function scheduleAmbientRite(){ ambientRiteAt=performance.now()/1000+rrange(RNG.H,6,16); }
+function scheduleAmbientRite(){ ambientRiteAt=performance.now()/1000+rrange(PRES,6,16); }
 function startRite(kind,opts){
   if(!Bubble.built||!Bubble.faith) return;
   const f=Bubble.faith, rs=f.rite;
@@ -2879,6 +3016,18 @@ function startRite(kind,opts){
   } else if(kind==='festival'){
     for(let i=0;i<n;i++){ const a=i/n*TAU*3, r=4+((i*2.3)%9);
       slots.push([Math.cos(a)*r,Math.sin(a)*r+2]); }
+    if(!Bubble.bonfire){
+      const bf=new THREE.Group();
+      const logs=new THREE.Mesh(new THREE.ConeGeometry(1.1,1.2,6),new THREE.MeshLambertMaterial({color:0x5a3a20}));
+      logs.position.y=0.5; bf.add(logs);
+      const fl=new THREE.Mesh(new THREE.ConeGeometry(0.9,2.6,6),
+        new THREE.MeshBasicMaterial({color:0xffa030,transparent:true,opacity:0.92}));
+      fl.position.y=2; bf.add(fl); Bubble.bonfireFlame=fl;
+      const gl=new THREE.PointLight(0xff9040,1.4,26);
+      gl.position.y=2.4; bf.add(gl);
+      bf.position.set(0,groundY(0,2,Bubble.setId),2);
+      Bubble.group.add(bf); Bubble.bonfire=bf;
+    }
   } else if(kind==='funeral'){
     for(let i=0;i<n;i++){ const a=(i/n-0.5)*Math.PI*1.4-Math.PI/2, r=4.5+(i%3)*1.4;
       slots.push([10+Math.cos(a)*r,8+Math.sin(a)*r]); }
@@ -2921,6 +3070,7 @@ function endRite(){
     p.tx=Math.cos(a)*r; p.tz=Math.sin(a)*r; p.inRite=false;
   }
   if(Bubble.pyre){ Bubble.group.remove(Bubble.pyre); Bubble.pyre=null; Bubble.fire=null; }
+  if(Bubble.bonfire){ Bubble.group.remove(Bubble.bonfire); Bubble.bonfire=null; Bubble.bonfireFlame=null; }
   scheduleAmbientRite();
 }
 function updateBubble(dtReal){
@@ -2934,9 +3084,9 @@ function updateBubble(dtReal){
       const wts={prayer:0.3+f.vector.ritualDensity, procession:f.rite.procession?0.5:0.05,
         sermon:f.rite.preachy?0.5:0.1, funeral:0.18, festival:f.rite.festivalScale*0.8+0.05,
         sacrifice:f.vector.sacrifice>0?0.3:0, wedding:0.14};
-      const kind=rweighted(RNG.H,Object.keys(wts),k=>wts[k]);
+      const kind=rweighted(PRES,Object.keys(wts),k=>wts[k]);
       startRite(kind);
-      if(RNG.H()<0.5) emitEvent('rite',5,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
+      if(PRES()<0.5) emitEvent('rite',5,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
         {faithId:f.id,setId:s.id,filter:'all',hold:false});
     }
   }
@@ -2950,6 +3100,7 @@ function updateBubble(dtReal){
       }
     }
     if(Bubble.fire){ Bubble.fire.scale.setScalar(1+Math.sin(now*9)*0.15); }
+    if(Bubble.bonfireFlame){ Bubble.bonfireFlame.scale.set(1+Math.sin(now*7)*0.2,1+Math.sin(now*11)*0.25,1+Math.cos(now*8)*0.2); }
     if(Bubble.rite.t>Bubble.rite.dur) endRite();
   }
   // move people
@@ -2959,7 +3110,8 @@ function updateBubble(dtReal){
     const p=Bubble.people[i];
     const dx=p.tx-p.x, dz=p.tz-p.z;
     const d=Math.sqrt(dx*dx+dz*dz);
-    if(d>0.3){ p.x+=dx/d*p.speed*dtReal; p.z+=dz/d*p.speed*dtReal; p.bow=Math.max(0,p.bow-dtReal*2); }
+    const spd=p.speed*(p.inRite?2.6:1);   // the summons is answered at a hurry
+    if(d>0.3){ p.x+=dx/d*spd*dtReal; p.z+=dz/d*spd*dtReal; p.bow=Math.max(0,p.bow-dtReal*2); }
     else if(!p.inRite&&Math.random()<dtReal*0.15){
       const a=Math.random()*TAU,r=8+Math.random()*46;
       p.tx=Math.cos(a)*r;p.tz=Math.sin(a)*r;
@@ -2987,7 +3139,7 @@ function updateBubble(dtReal){
   if(World.speed<=2){
     Bubble.sun.position.set(Math.cos(dayFrac*TAU)*80,Math.max(6,sunH*90),40);
     Bubble.sun.intensity=clamp01(0.25+sunH)*1.15;
-    Bubble.amb.intensity=0.35+clamp01(sunH)*0.5;
+    Bubble.amb.intensity=0.45+clamp01(sunH)*0.45;
     Bubble.lampMat.opacity=clamp01(-sunH+0.3);
     const dusk=clamp01(1-Math.abs(sunH));
     Bubble.scene.background.setRGB(0.04+clamp01(sunH)*0.3+dusk*0.12,0.06+clamp01(sunH)*0.32,0.1+clamp01(sunH)*0.4);
@@ -2996,6 +3148,26 @@ function updateBubble(dtReal){
     Bubble.sun.intensity=1.1; Bubble.amb.intensity=0.8; Bubble.lampMat.opacity=0;
   }
   if(Bubble.idol) Bubble.idol.rotation.y+=dtReal*0.1;
+  if(Bubble.moon){
+    const ma=(dayFrac+0.5)*TAU;
+    Bubble.moon.position.set(Math.cos(ma)*140,Math.max(-30,Math.sin(ma)*120),-90);
+    Bubble.moon.material.opacity=clamp01(-sunH+0.55);
+    const red=World.omens.find(o=>o.kind==='redmoon');
+    Bubble.moon.material.color.setHex(red?0xe86040:0xffffff);
+  }
+  if(Bubble.god){
+    Bubble.god.position.y=groundY(0,-26,Bubble.setId)+Math.sin(now*0.7)*0.8;
+    Bubble.god.rotation.y+=dtReal*0.05;
+    if(!(World.manifestUntil&&World.year<World.manifestUntil)){ Bubble.group.remove(Bubble.god); Bubble.god=null; }
+  }
+  // the seasons tint the living ground
+  if(Bubble.groundMat){
+    const season=((World.year%1)+1)%1;
+    const cold=Math.max(0,Math.cos((season-0.875)*TAU));   // deepest in winter
+    const cell=World.cells[s.cell];
+    const snow=clamp01((cold-0.3)*1.6)*clamp01((12-cell.temp)/18);
+    Bubble.groundMat.color.setRGB(1+snow*1.1,1+snow*1.05,1+snow*1.3);
+  }
 }
 /* ============================================================
    Section: the camera rig. One smoothed spring-damper transform
@@ -3368,12 +3540,12 @@ function directorTick(now,dtReal){
     return;
   }
   // at human speeds, an idle director stages sacred life itself
-  if(World.speed>=1&&World.speed<=2&&now>Director.idleAt+8&&RNG.H()<dtReal*0.06){
+  if(World.speed>=1&&World.speed<=2&&now>Director.idleAt+8&&PRES()<dtReal*0.06){
     const cands=World.settlements.filter(s=>dominantFaith(s)!==null&&s.pop>800);
     if(cands.length){
-      const s=rpick(RNG.H,cands);
+      const s=rpick(PRES,cands);
       const f=World.faiths[dominantFaith(s)];
-      const kind=rweighted(RNG.H,['prayer','festival','funeral','sermon','procession'],
+      const kind=rweighted(PRES,['prayer','festival','funeral','sermon','procession'],
         k=>k==='festival'?f.rite.festivalScale+0.1:k==='procession'?(f.rite.procession?0.5:0.05):0.3);
       emitEvent('rite',6,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
         {faithId:f.id,setId:s.id,filter:'all',hold:true});
@@ -3382,21 +3554,21 @@ function directorTick(now,dtReal){
   }
   // idle: golden-hour drift between holy cities
   if(now>Director.idleAt){
-    Director.idleAt=now+rrange(RNG.H,14,26);
+    Director.idleAt=now+rrange(PRES,14,26);
     const sites=World.settlements.filter(s=>s.holySite);
-    const s=sites.length?rpick(RNG.H,sites):rpick(RNG.H,World.settlements);
-    if(CameraRig.mode==='bubble'&&RNG.H()<0.6){
-      CameraRig.tbYaw+=rrange(RNG.H,-1.2,1.2); CameraRig.tbDist=rrange(RNG.H,18,50);
+    const s=sites.length?rpick(PRES,sites):rpick(PRES,World.settlements);
+    if(CameraRig.mode==='bubble'&&PRES()<0.6){
+      CameraRig.tbYaw+=rrange(PRES,-1.2,1.2); CameraRig.tbDist=rrange(PRES,18,50);
     } else {
       if(CameraRig.mode==='bubble') beginTransition('globe',-1);
-      flyTo(s.id,rrange(RNG.H,PLANET_R*0.25,PLANET_R*1.2));
+      flyTo(s.id,rrange(PRES,PLANET_R*0.25,PLANET_R*1.2));
     }
   } else if(CameraRig.mode==='globe'&&!CameraRig.follow){
     CameraRig.tLon+=dtReal*1.2;   // slow stately rotation
   }
 }
 function startBeat(ev,now){
-  const dur=ev.hold?rrange(RNG.H,10,20):rrange(RNG.H,8,16);
+  const dur=ev.hold?rrange(PRES,10,20):rrange(PRES,8,16);
   Director.cooldowns[ev.cls]=now+40;
   Director.active={ev,priority:ev.priority,kind:ev.hold?'hold':'montage',started:now};
   Director.until=now+dur;
@@ -3411,9 +3583,9 @@ function startBeat(ev,now){
   } else {
     // deep-time montage: pull up and drift across the affected ground
     if(CameraRig.mode==='bubble') beginTransition('globe',-1);
-    if(ev.setId!==undefined&&ev.setId>=0) flyTo(ev.setId,rrange(RNG.H,PLANET_R*0.7,PLANET_R*1.6));
+    if(ev.setId!==undefined&&ev.setId>=0) flyTo(ev.setId,rrange(PRES,PLANET_R*0.7,PLANET_R*1.6));
     else if(ev.faithId!==undefined) flyToEventQuiet(ev);
-    if(ev.wantsMontage&&RNG.H()<0.35&&!treeOpen){ toggleTree(true); Director.treeShown=true;
+    if(ev.wantsMontage&&PRES()<0.35&&!treeOpen){ toggleTree(true); Director.treeShown=true;
       setTimeout(()=>{ if(Director.treeShown){ toggleTree(false); Director.treeShown=false; } },6000); }
   }
 }
@@ -3430,8 +3602,8 @@ function runBeat(b,now,dtReal){
     if(CameraRig.mode==='bubble'&&CameraRig.focusSet===Director.holdSet&&!Director.holdStaged){
       Director.holdStaged=true;
       if(Director.holdRite) startRite(Director.holdRite);
-      CameraRig.tbDist=rrange(RNG.H,16,26);
-      CameraRig.tbPitch=rrange(RNG.H,0.25,0.5);
+      CameraRig.tbDist=rrange(PRES,16,26);
+      CameraRig.tbPitch=rrange(PRES,0.25,0.5);
     }
     if(Director.holdStaged) CameraRig.tbYaw+=dtReal*0.12; // slow orbit of the moment
   } else {
@@ -3785,12 +3957,28 @@ function inspectSettlement(s){
     ${ruler?`<div class="krow"><span>Ruler</span><span>${ruler.name}${World.faiths[ruler.faithId]?' ('+World.faiths[ruler.faithId].coreName+')':''}</span></div>`:''}
     ${s.holySite?`<div class="krow"><span>Holy site</span><span>${s.holySite.name}</span></div>`:''}
     ${s.ruins.length?`<div class="krow"><span>Ruins</span><span>${s.ruins.map(r=>r.name).join('; ')}</span></div>`:''}
+    ${notableRows(s)}
     <div style="margin:6px 0 2px;color:#6a5535">The faiths of ${s.name}:</div>
     ${mix.map(([f,v])=>`<div class="krow"><span class="jump" data-fid="${f.id}">${f.name}</span><span>${Math.round(v*100)}%</span></div>`).join('')||'<div>none remembered</div>'}
     ${condLine(s)}
     <div style="margin-top:6px"><span class="jump" id="jumpVisit">descend to the square</span></div>`;
   document.getElementById('inspBody').querySelectorAll('.jump[data-fid]').forEach(j=>j.onclick=()=>inspectFaith(World.faiths[+j.dataset.fid]));
   document.getElementById('jumpVisit').onclick=()=>{ flyTo(s.id,BUBBLE_ENTER*0.8); suspendDirector(); };
+}
+function notableRows(s){
+  // HEARTH notables: deterministic per settlement and generation
+  const gen=Math.floor(World.year/70);
+  const N=makeStream(World.seed,'notables'+s.id+'g'+gen);
+  const ph=World.cultures[s.culture].ph;
+  const dom=dominantFaith(s);
+  const f=dom!==null?World.faiths[dom]:null;
+  const roles=[f?(CLERGY[f.vector.clergy]||'elder').replace(/s$/,'').replace(/^a /,''):'elder',
+    rpick(N,['reeve','elder','master of the '+rpick(N,['granary','mill','wharf','forge'])])];
+  let html='';
+  for(const r of roles){
+    html+=`<div class="krow"><span>${r.charAt(0).toUpperCase()+r.slice(1)}</span><span>${makeName(ph,2,3,N)}, ${rpick(N,TRAITS)}</span></div>`;
+  }
+  return html;
 }
 function bar(v){ const n=Math.round(clamp01(v)*8);
   return '<span style="letter-spacing:1px">'+'▮'.repeat(n)+'<span style="opacity:0.25">'+'▮'.repeat(8-n)+'</span></span>'; }
