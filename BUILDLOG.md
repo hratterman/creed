@@ -71,6 +71,23 @@ Running log of decisions made while implementing the spec end to end.
   omens; the manifested god and festival bonfires are the only point lights.
 
 ## Verification
+Acceptance results on the finished build (headless Chromium + SwiftShader):
+- Phase 0 distinctiveness: five random belief-vectors produced five faiths
+  with distinct symbols, temple archetypes (all nine forms observed across
+  runs), postures, funerals, creeds, and plates.
+- Determinism: same seed twice gives identical worldgen (names, settlements,
+  founding faiths) and an identical history event sequence over the common
+  prefix; wording of entries is presentation-layer and may vary.
+- Five-minute test (speed 2, no input): PASS. Festivals and holy days seen,
+  10 foundings, 13 schisms, 4 endings, 10 recorded rites, 6 director holds
+  staged in the bubble, faith statuses visibly changing, zero page errors.
+- Interaction sweep: all 15 acts, all 8 overlays, tree filters and node
+  click-through, both exports, watch mode, hotkeys, and a full zoom round
+  trip orbit -> bubble -> orbit, zero page errors.
+- Manifestation (Literal dial): PASS; a vast, fervent faith called its god
+  into the world, with the pillar-of-light beat covered by the director.
+- Deep-time and stability long runs: see final entries below.
+
 - Headless Playwright + SwiftShader harness (`test.js` in scratchpad) routes
   the cdnjs three.js URL to a local copy, runs the sim at any speed, samples
   state, screenshots, and fails on any page error. SwiftShader fps is not
