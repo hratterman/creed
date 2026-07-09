@@ -1139,6 +1139,15 @@ function genFirstFaiths(G){
     const tot = Object.values(s.pool).reduce((a,b)=>a+b,0)||1;
     for(const k in s.pool) s.pool[k]/=tot;
   }
+  // the quiet first centuries have already done their slow work: distant
+  // communities of each primal faith begin the run part-way drifted apart
+  for(const s of World.settlements){
+    const dom=dominantFaith(s);
+    if(dom===null) continue;
+    const f=World.faiths[dom];
+    if(f.homeSet===s.id) continue;
+    if(setHops(s.id,f.homeSet,3)>=3) s.divergence[dom]=rrange(G,0.35,0.95);
+  }
   recountAdherents();
 }
 function recountAdherents(){
@@ -1437,7 +1446,7 @@ function schismSyncretismTick(dt,H){
 }
 function fireSchism(parent,s,H,cause,figure){
   // a faith needs age, weight, and a quiet spell before it can split again
-  if(World.year-parent.originYear<60) return null;
+  if(World.year-parent.originYear<45) return null;
   if(parent.adherents<1500) return null;
   if(World.year-(parent.lastSchism||-999)<70) return null;
   parent.lastSchism=World.year;
@@ -1537,7 +1546,7 @@ function figuresTick(dt,H){
     const m=s.cond.pestilence+s.cond.famine+s.cond.war+s.cond.oppression+s.unrest*0.5;
     if(m>miseryMax){miseryMax=m;miserySet=s;}
   }
-  const baseP=0.011 + (World.disenchantActive?0.008:0);
+  const baseP=0.016 + (World.disenchantActive?0.008:0);
   if(H()<(baseP+miseryMax*0.03)*dt*P){
     const s=(miseryMax>0.4&&H()<0.7)?miserySet:rpick(H,World.settlements);
     spawnProphet(s,H);
@@ -1818,6 +1827,7 @@ function upheavalsTick(dt,H){
       if(L===2&&H()<0.18){
         // the prophecy is fulfilled: the rarest and greatest of beats
         f.martyrGlow=0.9; f.disgraced=0;
+        World.manifestUntil=World.year+30; World.manifestFaith=f.id;
         for(const s of World.settlements) if(s.pool[f.id]) s.pool[f.id]=Math.min(1,s.pool[f.id]*1.8);
         emitEvent('manifest',10,chronManifest(f),{faithId:f.id,setId:f.holySiteSet,filter:'sign',wantsMontage:true,hold:true});
       } else if(H()<0.45+f.vector.orthodoxy*0.2){
@@ -3540,16 +3550,20 @@ function directorTick(now,dtReal){
     return;
   }
   // at human speeds, an idle director stages sacred life itself
-  if(World.speed>=1&&World.speed<=2&&now>Director.idleAt+8&&PRES()<dtReal*0.06){
-    const cands=World.settlements.filter(s=>dominantFaith(s)!==null&&s.pop>800);
-    if(cands.length){
-      const s=rpick(PRES,cands);
-      const f=World.faiths[dominantFaith(s)];
-      const kind=rweighted(PRES,['prayer','festival','funeral','sermon','procession'],
-        k=>k==='festival'?f.rite.festivalScale+0.1:k==='procession'?(f.rite.procession?0.5:0.05):0.3);
-      emitEvent('rite',6,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
-        {faithId:f.id,setId:s.id,filter:'all',hold:true});
-      return;
+  if(World.speed>=1&&World.speed<=2){
+    if(!Director.nextAmbient) Director.nextAmbient=now+14;
+    if(now>Director.nextAmbient){
+      Director.nextAmbient=now+rrange(PRES,26,48);
+      const cands=World.settlements.filter(s=>dominantFaith(s)!==null&&s.pop>800);
+      if(cands.length){
+        const s=rpick(PRES,cands);
+        const f=World.faiths[dominantFaith(s)];
+        const kind=rweighted(PRES,['prayer','festival','funeral','sermon','procession'],
+          k=>k==='festival'?f.rite.festivalScale+0.1:k==='procession'?(f.rite.procession?0.5:0.05):0.3);
+        emitEvent('rite',6,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
+          {faithId:f.id,setId:s.id,filter:'all',hold:true});
+        return;
+      }
     }
   }
   // idle: golden-hour drift between holy cities
@@ -4056,6 +4070,7 @@ function boot(){
   const stepLoad=()=>{ if(li<lines.length){ loadLine.textContent=lines[li++]; setTimeout(stepLoad,90); } };
   stepLoad();
   setTimeout(()=>{
+    try{
     genWorld(seed);
     document.title='The Creeds of '+World.name;
     initRenderer();
@@ -4066,15 +4081,21 @@ function boot(){
     emitEvent('open',5,`Here begins the record of ${World.name}, reconstructed from scripture, inscription, ruin, and the residue of borrowed doctrine. In the beginning each people kept the faith of its own valley, and the valleys had not yet spoken to one another.`,{filter:'all'});
     document.getElementById('loading').style.display='none';
     requestAnimationFrame(frame);
+    }catch(err){
+      document.getElementById('loadLine').textContent=
+        'This world could not be settled here ('+err.message+'). CREED needs a browser with WebGL.';
+      console.error(err);
+    }
   },500);
 }
 function frame(t){
   requestAnimationFrame(frame);
   const now=t/1000;
-  let dt=Math.min(0.1,now-(lastFrame||now));
+  const rawDt=Math.min(0.6,now-(lastFrame||now));   // history keeps pace on slow machines
+  let dt=Math.min(0.1,rawDt);                        // choreography stays stable
   lastFrame=now;
   // sim
-  simAdvance(dt);
+  simAdvance(rawDt);
   // camera & director
   directorTick(now,dt);
   updateCamera(dt);
