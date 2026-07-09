@@ -106,3 +106,19 @@ sweep. The build is done by the definition in §23.
   lines, three Points clouds, two InstancedMeshes at globe scale; the bubble
   is instanced crowds and merged parametric temples. Draw calls stay well
   under 250 at every altitude.
+
+## The museum-diorama pass
+Requested after first screenshots read as bare primitives. Geometry now comes
+from a small carver's bench of procedural helpers: lathed (revolved) profiles
+for domes on drums, spires, columns with entasis and capitals, finials,
+bells, fonts, idols, and lamp posts; beveled extrusions for all masonry;
+gable roofs with eaves; noise-displaced blobs for canopies, rocks, and
+standing stones; crenellated walls and stepped entries as merged ornament.
+People are lathed robed figures with hoods and folded arms. All nine temple
+archetypes were rebuilt on these forms. Lighting is a diorama rig: warm key
+with PCF soft shadows, cool fill, hemisphere bounce; the globe gains a limb
+glow atmosphere shader and the same key/fill/hemisphere trio; houses show lit
+windows at night; a CSS vignette ties the frame to the vellum UI. Polygon
+budget was never the constraint (the scene still sits well under 30 draw
+calls); silhouette was. Verified: all archetypes build without error, full
+interaction sweep clean, zoom round trip clean.

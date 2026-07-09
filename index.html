@@ -15,6 +15,8 @@
 html,body{width:100%;height:100%;overflow:hidden;background:#0a0a12;}
 body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;color:var(--parch);font-size:13px;}
 #gl{position:absolute;inset:0;display:block;}
+#vignette{position:absolute;inset:0;pointer-events:none;z-index:5;
+  background:radial-gradient(ellipse at 50% 46%, transparent 52%, rgba(16,10,4,0.18) 82%, rgba(10,6,2,0.42) 100%);}
 #labels{position:absolute;inset:0;pointer-events:none;}
 #treeCanvas{position:absolute;inset:0;display:none;background:radial-gradient(ellipse at 50% 40%, #1a1410 0%, #0c0906 100%);}
 .serif{font-family:Georgia,'Times New Roman',serif;}
@@ -147,6 +149,7 @@ body.uihidden .hideable{opacity:0;pointer-events:none;}
 </head>
 <body>
 <canvas id="gl"></canvas>
+<div id="vignette"></div>
 <canvas id="labels"></canvas>
 <canvas id="treeCanvas"></canvas>
 <div id="hud" class="hideable">
@@ -2291,14 +2294,20 @@ function initRenderer(){
   R3.renderer=new THREE.WebGLRenderer({canvas,antialias:true});
   R3.renderer.setPixelRatio(Math.min(devicePixelRatio,2));
   R3.renderer.setSize(innerWidth,innerHeight);
+  R3.renderer.shadowMap.enabled=true;
+  R3.renderer.shadowMap.type=THREE.PCFSoftShadowMap;
   R3.camera=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,0.05,4000);
   R3.scene=new THREE.Scene();
   R3.scene.background=new THREE.Color(0x05060e);
-  // lights
-  R3.sun=new THREE.DirectionalLight(0xfff2d8,1.15);
+  // lights: warm key, cool fill, sky/ground bounce
+  R3.sun=new THREE.DirectionalLight(0xffeecb,1.05);
   R3.sun.position.set(300,120,200);
   R3.scene.add(R3.sun);
-  R3.scene.add(new THREE.AmbientLight(0x445066,0.85));
+  R3.fillLight=new THREE.DirectionalLight(0x6f86bb,0.3);
+  R3.fillLight.position.set(-260,-40,-180);
+  R3.scene.add(R3.fillLight);
+  R3.scene.add(new THREE.HemisphereLight(0x8ea6cf,0x54483a,0.5));
+  R3.scene.add(new THREE.AmbientLight(0x445066,0.35));
   buildGlobe();
   buildSky();
   buildBubbleShared();
@@ -2337,9 +2346,24 @@ function buildGlobe(){
   R3.globe=new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true}));
   R3.scene.add(R3.globe);
   // ocean
-  R3.ocean=new THREE.Mesh(new THREE.IcosahedronGeometry(PLANET_R+0.02,4),
+  R3.ocean=new THREE.Mesh(new THREE.IcosahedronGeometry(PLANET_R+0.02,5),
     new THREE.MeshPhongMaterial({color:0x2a5a8e,transparent:true,opacity:0.78,shininess:90,specular:0x557799}));
   R3.scene.add(R3.ocean);
+  // the air itself: a limb glow, brightest at the planet's edge, thinning to space
+  R3.atmo=new THREE.Mesh(new THREE.SphereGeometry(PLANET_R*1.05,64,48),
+    new THREE.ShaderMaterial({
+      transparent:true, blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.BackSide,
+      vertexShader:`varying vec3 vWN; varying vec3 vWP;
+        void main(){ vWN=normalize(mat3(modelMatrix)*normal); vWP=(modelMatrix*vec4(position,1.)).xyz;
+          gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+      fragmentShader:`varying vec3 vWN; varying vec3 vWP;
+        void main(){
+          vec3 v=normalize(cameraPosition-vWP);
+          float d=dot(vWN,v);                    // 0 at the shell rim, negative toward the limb
+          float f=pow(clamp(-d*2.6,0.0,1.0),1.5);
+          gl_FragColor=vec4(vec3(0.36,0.56,0.95)*f,f*0.75); }`
+    }));
+  R3.scene.add(R3.atmo);
   // faith overlay: equirect canvas texture on a slightly larger shell
   R3.ovCanvas=document.createElement('canvas'); R3.ovCanvas.width=1024; R3.ovCanvas.height=512;
   R3.ovTex=new THREE.CanvasTexture(R3.ovCanvas);
@@ -2710,6 +2734,136 @@ function updateSky(dtReal){
   }
 }
 /* ============================================================
+   Section: the carver's bench. Procedural geometry helpers for
+   the museum-diorama register: lathed (revolved) sacred forms,
+   beveled masonry, gable roofs, ornament. All generated, none
+   loaded; polygon budget is not the constraint, silhouette is.
+   ============================================================ */
+function latheGeo(pts,segs){
+  const v=pts.map(p=>new THREE.Vector2(p[0],p[1]));
+  const g=new THREE.LatheGeometry(v,segs||28);
+  g.computeVertexNormals();
+  return g;
+}
+// beveled box: extruded rounded rectangle, centered, lying on y=0
+function bevelBox(w,h,d,bev){
+  const b=Math.min(bev||0.08, w*0.24, d*0.24);
+  const s=new THREE.Shape();
+  const x=w/2-b, z=d/2-b;
+  s.moveTo(-x,-d/2); s.lineTo(x,-d/2);
+  s.absarc(x,-z,b,-Math.PI/2,0,false);
+  s.lineTo(w/2,z);
+  s.absarc(x,z,b,0,Math.PI/2,false);
+  s.lineTo(-x,d/2);
+  s.absarc(-x,z,b,Math.PI/2,Math.PI,false);
+  s.lineTo(-w/2,-z);
+  s.absarc(-x,-z,b,Math.PI,Math.PI*1.5,false);
+  const g=new THREE.ExtrudeGeometry(s,{depth:h,bevelEnabled:true,bevelThickness:b,bevelSize:b*0.8,bevelSegments:2,curveSegments:3});
+  g.rotateX(-Math.PI/2);
+  g.translate(0,h+b*0.8,0);
+  g.computeVertexNormals();
+  return g;
+}
+// gable roof with eaves: a manual prism, overhung and slightly flared
+function gableRoof(w,h,d,over){
+  const o=over||0.35, W=w/2+o, D=d/2+o, lift=-0.12;
+  const P=[ -W,lift,-D,  W,lift,-D,  W,lift,D,  -W,lift,D,  0,h,-D+o*0.4,  0,h,D-o*0.4 ];
+  const idx=[0,4,1, 1,4,5, 1,5,2, 2,5,3, 3,5,4, 3,4,0, 0,1,2, 0,2,3];
+  const pos=[];
+  for(const i of idx) pos.push(P[i*3],P[i*3+1],P[i*3+2]);
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.computeVertexNormals();
+  return g;
+}
+// a classical column: base, entasis shaft, capital
+function columnGeo(r,h){
+  return latheGeo([
+    [r*1.7,0],[r*1.7,r*0.5],[r*1.25,r*0.7],[r*1.08,h*0.12],
+    [r,h*0.5],[r*0.92,h*0.82],[r*1.15,h*0.88],[r*1.5,h*0.94],[r*1.55,h],[0,h]
+  ],14);
+}
+// dome on a drum, with an oculus rim
+function domeGeo(r,drumH){
+  const pts=[[r*1.05,0],[r*1.05,drumH*0.85],[r*1.12,drumH]];
+  for(let a=0;a<=9;a++){
+    const t=a/9*Math.PI/2;
+    pts.push([Math.cos(t)*r, drumH+Math.sin(t)*r*0.92]);
+  }
+  return latheGeo(pts,30);
+}
+// a gilded finial: bulb and spike
+function finialGeo(r){
+  return latheGeo([
+    [r*0.5,0],[r*0.62,r*0.35],[r,r*1.1],[r*0.62,r*1.9],[r*0.2,r*2.3],[r*0.34,r*2.7],[0,r*3.6]
+  ],14);
+}
+// bell / stupa profile
+function bellGeo(r,h){
+  return latheGeo([
+    [r*1.15,0],[r*1.15,h*0.08],[r,h*0.2],[r*0.96,h*0.55],[r*0.7,h*0.8],[r*0.32,h*0.9],[r*0.3,h],[0,h*1.02]
+  ],26);
+}
+// standing stone / rock: noise-displaced icosahedron
+function blobGeo(r,detail,mag,seedOff){
+  const g=new THREE.IcosahedronGeometry(r,detail||1);
+  const p=g.attributes.position;
+  for(let i=0;i<p.count;i++){
+    const x=p.getX(i),y=p.getY(i),z=p.getZ(i);
+    const n=1+SIMPLEX(x*0.9+seedOff,y*0.9,z*0.9)*mag;
+    p.setXYZ(i,x*n,y*n,z*n);
+  }
+  g.computeVertexNormals();
+  return g;
+}
+// tree canopy: two or three soft blobs on a tapered trunk (merged)
+function treeGeo(seedOff){
+  const trunk=latheGeo([[0.22,0],[0.16,1.2],[0.1,2.2],[0,2.3]],8);
+  const parts=[trunk];
+  const n=2+Math.floor(Math.abs(Math.sin(seedOff*13.7))*2);
+  for(let i=0;i<n;i++){
+    const b=blobGeo(0.95-i*0.16,1,0.28,seedOff+i*3.3);
+    b.translate(Math.sin(seedOff+i*2.4)*0.5, 2.1+i*0.75, Math.cos(seedOff*1.7+i)*0.5);
+    parts.push(b);
+  }
+  return mergeGeos(parts);
+}
+// the robed believer: lathed robe, head, hood; ~running one draw call instanced
+function personGeo(){
+  const robe=latheGeo([
+    [0.34,0],[0.33,0.06],[0.24,0.5],[0.2,0.78],[0.26,1.0],[0.24,1.12],[0.13,1.2],[0,1.22]
+  ],14);
+  const head=new THREE.SphereGeometry(0.155,12,9);
+  head.translate(0,1.32,0);
+  const hood=new THREE.SphereGeometry(0.19,12,8,Math.PI*0.85,Math.PI*1.3,0,Math.PI*0.72);
+  hood.translate(0,1.3,0.015);
+  const arms=new THREE.TorusGeometry(0.2,0.05,6,10,Math.PI);
+  arms.rotateX(Math.PI/2); arms.rotateY(Math.PI);
+  arms.translate(0,0.86,0.06);
+  return mergeGeos([robe,head,hood,arms]);
+}
+// low ornament wall with crenellations, along x, centered
+function crenelWall(len,h){
+  const parts=[bevelBox(len,h,0.5,0.06)];
+  const n=Math.max(2,Math.floor(len/1.1));
+  for(let i=0;i<n;i++){
+    const m=bevelBox(0.42,0.3,0.54,0.04);
+    m.translate(-len/2+ (i+0.5)*(len/n),h,0);
+    parts.push(m);
+  }
+  return mergeGeos(parts);
+}
+// steps up to a doorway: three beveled slabs
+function stepsGeo(w){
+  const parts=[];
+  for(let i=0;i<3;i++){
+    const s=bevelBox(w-i*0.5,0.22,1.4-i*0.34,0.05);
+    s.translate(0,i*0.22,-i*0.42);
+    parts.push(s);
+  }
+  return mergeGeos(parts);
+}
+/* ============================================================
    Section: the bubble. HEARTH made sacred: one settlement built
    as a living place, with the local faith made physical and a
    choreographer staging its rites from crowd, prop, and space.
@@ -2720,35 +2874,39 @@ function buildBubbleShared(){
   Bubble.scene=new THREE.Scene();
   Bubble.scene.background=new THREE.Color(0x0a1018);
   Bubble.scene.fog=new THREE.Fog(0x202838,80,320);
-  Bubble.sun=new THREE.DirectionalLight(0xffedc8,1.1);
+  // diorama light rig: warm key with shadows, cool fill, sky/ground bounce
+  Bubble.sun=new THREE.DirectionalLight(0xffe8c0,1.05);
   Bubble.sun.position.set(60,90,40);
+  Bubble.sun.castShadow=true;
+  Bubble.sun.shadow.mapSize.set(2048,2048);
+  const sc=Bubble.sun.shadow.camera;
+  sc.left=-85; sc.right=85; sc.top=85; sc.bottom=-85; sc.near=10; sc.far=320;
+  Bubble.sun.shadow.bias=-0.0015;
   Bubble.scene.add(Bubble.sun);
-  Bubble.amb=new THREE.AmbientLight(0x66707e,0.8);
+  Bubble.fill=new THREE.DirectionalLight(0x7e93c8,0.32);
+  Bubble.fill.position.set(-70,40,-50);
+  Bubble.scene.add(Bubble.fill);
+  Bubble.hemi=new THREE.HemisphereLight(0x9db8dd,0x6a5a42,0.65);
+  Bubble.scene.add(Bubble.hemi);
+  Bubble.amb=new THREE.AmbientLight(0x404a58,0.25);
   Bubble.scene.add(Bubble.amb);
-  // person geometry: capsule-ish (cylinder + head) merged
-  const body=new THREE.CylinderGeometry(0.22,0.3,1.15,6);
-  body.translate(0,0.6,0);
-  const head=new THREE.SphereGeometry(0.2,6,5);
-  head.translate(0,1.35,0);
-  Bubble.personGeo=mergeGeos([body,head]);
+  Bubble.personGeo=personGeo();
 }
 function mergeGeos(list){
-  // minimal merge for identical-attribute geometries (r128 safe)
-  let total=0, hasIndex=true;
-  for(const g of list){ total+=g.attributes.position.count; if(!g.index) hasIndex=false; }
+  // merge position+normal, tolerating mixed indexed and non-indexed input
+  const flat=list.map(g=>g.index?g.toNonIndexed():g);
+  let total=0;
+  for(const g of flat) total+=g.attributes.position.count;
   const pos=new Float32Array(total*3), norm=new Float32Array(total*3);
-  const idx=[];
   let off=0;
-  for(const g of list){
+  for(const g of flat){
     pos.set(g.attributes.position.array,off*3);
     norm.set(g.attributes.normal.array,off*3);
-    if(hasIndex) for(let i=0;i<g.index.count;i++) idx.push(g.index.array[i]+off);
     off+=g.attributes.position.count;
   }
   const out=new THREE.BufferGeometry();
   out.setAttribute('position',new THREE.BufferAttribute(pos,3));
   out.setAttribute('normal',new THREE.BufferAttribute(norm,3));
-  if(hasIndex) out.setIndex(idx);
   return out;
 }
 
@@ -2781,7 +2939,9 @@ function enterBubble(setId){
   gg.setAttribute('color',new THREE.BufferAttribute(gc,3));
   gg.computeVertexNormals();
   Bubble.groundMat=new THREE.MeshLambertMaterial({vertexColors:true});
-  Bubble.group.add(new THREE.Mesh(gg,Bubble.groundMat));
+  const groundMesh=new THREE.Mesh(gg,Bubble.groundMat);
+  groundMesh.receiveShadow=true;
+  Bubble.group.add(groundMesh);
   // ---- square + temple of the dominant faith ----
   const dom=dominantFaith(s);
   const f=dom!==null?World.faiths[dom]:null;
@@ -2796,38 +2956,68 @@ function enterBubble(setId){
   const minor=Object.entries(s.pool).filter(([k,v])=>+k!==dom&&v>0.25&&World.faiths[k]&&!World.faiths[k].deadYear)[0];
   if(minor) buildTemple(World.faiths[minor[0]],v3(26,0,10),B,0.55);
   if(s.ruins.length&&f) buildRuin(v3(-30,0,18),B);
-  // ---- houses ----
+  // ---- houses: beveled walls, eaved gable roofs, lit windows ----
   const n=clamp(Math.round(s.pop/60),14,110);
-  const wallG=new THREE.BoxGeometry(1,1,1); wallG.translate(0,0.5,0);
-  const roofG=new THREE.ConeGeometry(0.82,0.6,4); roofG.translate(0,1.28,0); roofG.rotateY(Math.PI/4);
-  Bubble.houses=new THREE.InstancedMesh(wallG,new THREE.MeshLambertMaterial({color:0xcbb694}),n);
-  Bubble.roofs=new THREE.InstancedMesh(roofG,new THREE.MeshLambertMaterial({color:0x8a5a38}),n);
-  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),sc=new THREE.Vector3();
+  const wallG=bevelBox(1,1,1,0.06);
+  const roofG=gableRoof(1,0.5,1,0.16);
+  const winG=new THREE.PlaneGeometry(0.16,0.22); winG.translate(0,0,0.005);
+  const wallHue=new THREE.Color().setHSL(0.08+B()*0.04,0.34,0.58);
+  Bubble.houses=new THREE.InstancedMesh(wallG,new THREE.MeshLambertMaterial({color:0xffffff}),n);
+  Bubble.roofs=new THREE.InstancedMesh(roofG,new THREE.MeshLambertMaterial({color:0xffffff}),n);
+  Bubble.winMat=new THREE.MeshBasicMaterial({color:0xffc868,transparent:true,opacity:0});
+  Bubble.windows=new THREE.InstancedMesh(winG,Bubble.winMat,n*2);
+  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),sc=new THREE.Vector3(),cc2=new THREE.Color();
+  let wi=0;
   for(let i=0;i<n;i++){
     const a=B()*TAU, r=18+B()*B()*70;
     const x=Math.cos(a)*r, z=Math.sin(a)*r*0.85;
-    const w=2+B()*2.4, h=2+B()*1.6, d2=2+B()*2.4;
+    const w=2+B()*2.4, h=1.8+B()*1.4, d2=2+B()*2.4;
+    const y=groundY(x,z,setId);
     q.setFromAxisAngle(v3(0,1,0),Math.floor(B()*4)*Math.PI/2+B()*0.2);
-    sc.set(w,h,d2); m.compose(v3(x,groundY(x,z,setId),z),q,sc);
+    sc.set(w,h,d2); m.compose(v3(x,y,z),q,sc);
     Bubble.houses.setMatrixAt(i,m);
-    sc.set(w*1.1,h,d2*1.1); m.compose(v3(x,groundY(x,z,setId),z),q,sc);
+    cc2.copy(wallHue).offsetHSL((B()-0.5)*0.03,(B()-0.5)*0.1,(B()-0.5)*0.12);
+    Bubble.houses.setColorAt(i,cc2);
+    sc.set(w,h*0.95,d2); m.compose(v3(x,y+h+0.05,z),q,sc);
     Bubble.roofs.setMatrixAt(i,m);
+    cc2.setHSL(0.02+B()*0.06,0.5,0.3+B()*0.1);
+    Bubble.roofs.setColorAt(i,cc2);
+    // one or two windows on the front face
+    const nw=1+(B()<0.5?1:0);
+    for(let k=0;k<nw;k++){
+      const local=new THREE.Matrix4().makeTranslation((k===0?-0.2:0.22)*w*0.8,y+h*0.55,d2*0.51);
+      const hm=new THREE.Matrix4().compose(v3(x,0,z),q,new THREE.Vector3(1,1,1));
+      const rel=new THREE.Matrix4().makeTranslation((k===0?-0.2:0.22)*w*0.8,h*0.55,d2*0.51);
+      m.copy(hm).multiply(rel);
+      Bubble.windows.setMatrixAt(wi++,m);
+    }
   }
-  Bubble.group.add(Bubble.houses,Bubble.roofs);
-  // ---- trees for green biomes ----
+  for(;wi<n*2;wi++){ m.makeScale(0,0,0); Bubble.windows.setMatrixAt(wi,m); }
+  Bubble.houses.castShadow=Bubble.houses.receiveShadow=true;
+  Bubble.roofs.castShadow=Bubble.roofs.receiveShadow=true;
+  Bubble.group.add(Bubble.houses,Bubble.roofs,Bubble.windows);
+  // ---- trees: tapered trunks under soft displaced canopies ----
   if([BIOME.FOREST,BIOME.RIVER,BIOME.GRASS,BIOME.MARSH].includes(c.biome)){
-    const nt=c.biome===BIOME.FOREST?90:34;
-    const tg=new THREE.ConeGeometry(1.3,3.4,5); tg.translate(0,2.2,0);
-    Bubble.trees=new THREE.InstancedMesh(tg,new THREE.MeshLambertMaterial({color:0x2e5a2a}),nt);
+    const nt=c.biome===BIOME.FOREST?80:30;
+    const trunkG=latheGeo([[0.24,0],[0.17,1.1],[0.1,2.1],[0,2.25]],8);
+    const canG=blobGeo(1.05,1,0.3,setId*0.7); canG.translate(0,2.6,0);
+    const can2=blobGeo(0.75,1,0.34,setId*1.9); can2.translate(0.5,3.3,0.3);
+    const canopyG=mergeGeos([canG,can2]);
+    Bubble.trees=new THREE.InstancedMesh(trunkG,new THREE.MeshLambertMaterial({color:0x6a4a30}),nt);
+    Bubble.canopies=new THREE.InstancedMesh(canopyG,new THREE.MeshLambertMaterial({color:0xffffff}),nt);
     for(let i=0;i<nt;i++){
       const a=B()*TAU,r=40+B()*100;
       const x=Math.cos(a)*r,z=Math.sin(a)*r;
-      sc.set(0.7+B()*0.9,0.7+B()*1.1,0.7+B()*0.9);
+      sc.set(0.7+B()*0.9,0.75+B()*1.0,0.7+B()*0.9);
       q.setFromAxisAngle(v3(0,1,0),B()*TAU);
       m.compose(v3(x,groundY(x,z,setId),z),q,sc);
       Bubble.trees.setMatrixAt(i,m);
+      Bubble.canopies.setMatrixAt(i,m);
+      cc2.setHSL(0.26+B()*0.09,0.42+B()*0.15,0.28+B()*0.1);
+      Bubble.canopies.setColorAt(i,cc2);
     }
-    Bubble.group.add(Bubble.trees);
+    Bubble.trees.castShadow=true; Bubble.canopies.castShadow=true;
+    Bubble.group.add(Bubble.trees,Bubble.canopies);
   }
   // ---- people ----
   const np=Bubble.nPeople=clamp(Math.round(s.pop/45),24,170);
@@ -2846,6 +3036,7 @@ function enterBubble(setId){
     if(B()<0.5) cc.offsetHSL(0,-(B()*0.2),(B()*0.14-0.07));
     Bubble.crowd.setColorAt(i,cc);
   }
+  Bubble.crowd.castShadow=true;
   Bubble.group.add(Bubble.crowd);
   // ---- the manifested god, if this is its holy city on the literal dial ----
   if(World.manifestUntil&&World.year<World.manifestUntil&&World.manifestFaith!==undefined){
@@ -2871,16 +3062,21 @@ function enterBubble(setId){
   Bubble.moon=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(moonCv),transparent:true}));
   Bubble.moon.scale.set(18,18,1);
   Bubble.group.add(Bubble.moon);
-  // ---- night lamps ----
+  // ---- lamp posts around the square ----
   Bubble.lampMat=new THREE.MeshBasicMaterial({color:0xffc868,transparent:true,opacity:0});
-  const lampG=new THREE.SphereGeometry(0.16,5,4);
+  const lampG=new THREE.SphereGeometry(0.17,10,8); lampG.translate(0,2.35,0);
+  const postG=latheGeo([[0.09,0],[0.05,1.9],[0.12,2.05],[0.05,2.18],[0,2.2]],8);
   Bubble.lamps=new THREE.InstancedMesh(lampG,Bubble.lampMat,16);
+  Bubble.lampPosts=new THREE.InstancedMesh(postG,new THREE.MeshLambertMaterial({color:0x4a3a2a}),16);
   for(let i=0;i<16;i++){
     const a=i/16*TAU;
-    m.compose(v3(Math.cos(a)*15,2.2,Math.sin(a)*15),q.identity(),sc.set(1,1,1));
+    const lx=Math.cos(a)*15, lz=Math.sin(a)*15;
+    m.compose(v3(lx,groundY(lx,lz,setId),lz),q.identity(),sc.set(1,1,1));
     Bubble.lamps.setMatrixAt(i,m);
+    Bubble.lampPosts.setMatrixAt(i,m);
   }
-  Bubble.group.add(Bubble.lamps);
+  Bubble.lampPosts.castShadow=true;
+  Bubble.group.add(Bubble.lamps,Bubble.lampPosts);
   Bubble.rite=null;
   scheduleAmbientRite();
 }
@@ -2907,74 +3103,110 @@ function disposeBubbleContent(){
   Bubble.built=false;
 }
 
-/* ---------- sacred architecture assembly ---------- */
+/* ---------- sacred architecture assembly (carved, not boxed) ---------- */
 function buildTemple(f,at,B,scaleMul){
   const a=f.arch, k=(a.scale)*(scaleMul||1);
   const grp=new THREE.Group();
   grp.position.copy(at);
-  const stone=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.18,0.62)});
-  const accent=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.55,0.45)});
-  const gold=new THREE.MeshLambertMaterial({color:0xc9a227,emissive:0x40320a});
+  const stone=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.16,0.64)});
+  const stoneDark=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.2,0.48)});
+  const accent=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.5,0.45)});
+  const gold=new THREE.MeshLambertMaterial({color:0xd8b23a,emissive:0x40320a});
   const add=(geo,mat,x,y,z,ry)=>{ const mm=new THREE.Mesh(geo,mat); mm.position.set(x,y,z); if(ry)mm.rotation.y=ry; grp.add(mm); return mm; };
+  const colonnade=(nCol,r,h,cy)=>{ const cg=columnGeo(0.34,h);
+    for(let i=0;i<nCol;i++){ const ang=i/nCol*TAU; add(cg,stone,Math.cos(ang)*r,cy||0,Math.sin(ang)*r); } };
   switch(a.form){
     case 'grove': {
       for(let i=0;i<7;i++){ const ang=i/7*TAU;
-        add(new THREE.CylinderGeometry(0.35,0.5,3.2+B()*2,5),stone,Math.cos(ang)*5.2,1.7,Math.sin(ang)*5.2); }
+        const st=add(blobGeo(0.6,1,0.35,f.id+i),stoneDark,Math.cos(ang)*5.2,1.4,Math.sin(ang)*5.2);
+        st.scale.set(0.7,2.2+B()*1.2,0.7); st.rotation.z=(B()-0.5)*0.14; }
       for(let i=0;i<5;i++){ const ang=i/5*TAU+0.4;
-        const t=add(new THREE.ConeGeometry(1.8,5.5,6),new THREE.MeshLambertMaterial({color:0x2a5626}),Math.cos(ang)*8,3.4,Math.sin(ang)*8); }
-      add(new THREE.BoxGeometry(1.6,0.8,1.6),stone,0,0.4,0); // low altar
+        add(treeGeo(f.id*2.7+i),new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(0.29+B()*0.06,0.4,0.3)}),
+          Math.cos(ang)*8.5,0,Math.sin(ang)*8.5).scale.setScalar(1.5+B()*0.8); }
+      add(latheGeo([[1.1,0],[1.0,0.35],[0.55,0.5],[0.62,0.85],[0.95,1.0],[0.85,1.08],[0,1.1]],20),stone,0,0,0); // font
       break; }
     case 'forum': {
-      add(new THREE.BoxGeometry(14*k,0.6,10*k),stone,0,0.3,0);
-      for(let i=0;i<6;i++){ add(new THREE.CylinderGeometry(0.4,0.45,4.4,7),stone,-5.5*k+i*2.2*k,2.6,-4*k); }
-      add(new THREE.BoxGeometry(14*k,0.8,1.2),stone,0,4.9,-4*k);
+      add(bevelBox(15*k,0.7,11*k,0.14),stone,0,0,0);
+      add(stepsGeo(6),stone,0,0,5.5*k+0.8);
+      const cg=columnGeo(0.36,4.6);
+      for(let i=0;i<7;i++){ add(cg,stone,-6*k+i*2*k,0.7,-3.6*k); add(cg,stone,-6*k+i*2*k,0.7,3.6*k); }
+      add(bevelBox(14.4*k,0.7,1.3,0.1),stone,0,5.3,-3.6*k);
+      add(bevelBox(14.4*k,0.7,1.3,0.1),stone,0,5.3,3.6*k);
+      add(bevelBox(3.4,0.5,3.4,0.1),stoneDark,0,0.7,-1.5);
       break; }
     case 'monastery': {
-      add(new THREE.BoxGeometry(12*k,3,1),stone,0,1.5,6);
-      add(new THREE.BoxGeometry(12*k,3,1),stone,0,1.5,-6);
-      add(new THREE.BoxGeometry(1,3,12),stone,6*k,1.5,0);
-      add(new THREE.BoxGeometry(1,3,12),stone,-6*k,1.5,0);
-      add(new THREE.BoxGeometry(4,5,4),stone,0,2.5,0);
-      add(new THREE.ConeGeometry(3,2.4,4),accent,0,6.2,0,Math.PI/4);
+      add(crenelWall(13*k,2.8),stone,0,0,6);
+      add(crenelWall(13*k,2.8),stone,0,0,-6);
+      add(crenelWall(12,2.8),stone,6.5*k,0,0,Math.PI/2);
+      add(crenelWall(12,2.8),stone,-6.5*k,0,0,Math.PI/2);
+      add(bevelBox(4.6,4.6,4.6,0.14),stone,0,0,0);
+      add(domeGeo(2.1,0.7),accent,0,4.7,0);
+      add(finialGeo(0.3),gold,0,7.6,0);
+      add(bevelBox(2.2,3.4,0.8,0.08),stoneDark,0,0,6); // gatehouse
+      add(stepsGeo(3),stone,0,0,7.4);
       break; }
     case 'ziggurat': {
-      for(let i=0;i<4;i++) add(new THREE.BoxGeometry((10-i*2.2)*k,1.6,(10-i*2.2)*k),i%2?accent:stone,0,0.8+i*1.6,0);
-      add(new THREE.BoxGeometry(2,2,2),gold,0,7.4,0);
+      for(let i=0;i<4;i++) add(bevelBox((10.5-i*2.3)*k,1.7,(10.5-i*2.3)*k,0.16),i%2?accent:stone,0,i*1.7,0);
+      const sh=add(bevelBox(2.4,1.9,2.4,0.1),gold,0,6.8,0);
+      add(finialGeo(0.32),gold,0,8.9,0);
+      const st=add(stepsGeo(3.2),stoneDark,0,0,5.6*k); st.scale.z=3.4; // the long stair
       break; }
     case 'dome': {
-      add(new THREE.CylinderGeometry(5*k,5.4*k,3.6,10),stone,0,1.8,0);
-      const dome=add(new THREE.SphereGeometry(4.6*k,12,8,0,TAU,0,Math.PI/2),accent,0,3.6,0);
-      add(new THREE.CylinderGeometry(0.28,0.28,3,6),gold,0,8.2*Math.max(0.7,k),0);
-      for(const sx of [-1,1]) add(new THREE.CylinderGeometry(0.5,0.6,8,7),stone,sx*6.4*k,4,0);
+      add(bevelBox(11*k,1.1,11*k,0.18),stone,0,0,0);
+      add(domeGeo(4.6*k,2.8),accent,0,1.1,0);
+      add(finialGeo(0.42),gold,0,1.1+2.8+4.6*k*0.95,0);
+      for(const sx of [-1,1]){
+        add(latheGeo([[0.65,0],[0.5,5.5],[0.72,6.0],[0.5,6.4],[0,7.3]],12),stone,sx*6.6*k,1.1,0);
+        add(finialGeo(0.2),gold,sx*6.6*k,7.5,0);
+      }
+      add(stepsGeo(4.5),stone,0,0,5.5*k+0.9);
       break; }
     case 'cathedral': {
-      add(new THREE.BoxGeometry(6*k,5,12*k),stone,0,2.5,0);
-      add(new THREE.ConeGeometry(4.4*k,3,4),accent,0,6.4,0,Math.PI/4);
-      add(new THREE.BoxGeometry(2.6,8,2.6),stone,0,4,7*k);
-      add(new THREE.ConeGeometry(2,3.4,4),accent,0,9.6,7*k,Math.PI/4);
-      add(new THREE.CylinderGeometry(0.16,0.16,2.2,5),gold,0,12,7*k);
+      add(bevelBox(6.4*k,5.2,12.5*k,0.16),stone,0,0,0);
+      const rf=add(gableRoof(6.4*k,2.6,12.5*k,0.5),accent,0,5.5,0);
+      for(const sx of [-1,1]) for(let i=0;i<3;i++){ // buttresses
+        const bt=add(bevelBox(0.7,3.6,1.1,0.06),stoneDark,sx*(3.2*k+0.5),0,-3.5+i*3.5);
+        bt.rotation.z=sx*-0.16;
+      }
+      add(bevelBox(2.9,9,2.9,0.1),stone,0,0,6.6*k);       // tower
+      add(latheGeo([[1.9,0],[1.15,1.4],[0.5,3.2],[0.14,4.6],[0,4.9]],10),accent,0,9.1,6.6*k);
+      add(finialGeo(0.26),gold,0,13.9,6.6*k);
+      const rose=add(new THREE.TorusGeometry(0.95,0.16,8,22),gold,0,4.6,6.6*k+1.5);
+      add(new THREE.CircleGeometry(0.85,20),accent,0,4.6,6.6*k+1.48);
+      add(stepsGeo(3.4),stone,0,0,6.6*k+2.2);
       break; }
     case 'spire': {
-      add(new THREE.CylinderGeometry(3.4*k,4.2*k,3,8),stone,0,1.5,0);
-      add(new THREE.ConeGeometry(2.9*k,9,8),accent,0,7.4,0);
-      add(new THREE.SphereGeometry(0.5,6,5),gold,0,12.2,0);
+      add(bevelBox(7.4*k,1,7.4*k,0.15),stone,0,0,0);
+      colonnade(10,3.6*k,2.6,1);
+      add(latheGeo([[3.1*k,0],[2.9*k,0.7],[1.7*k,3.4],[0.8*k,6.4],[0.28,9.4],[0,10]],18),accent,0,1,0);
+      add(finialGeo(0.4),gold,0,11.1,0);
+      add(stepsGeo(3.2),stone,0,0,3.7*k+0.9);
       break; }
     case 'hall': {
-      add(new THREE.BoxGeometry(10*k,3.6,7*k),stone,0,1.8,0);
-      add(new THREE.ConeGeometry(6.4*k,2.6,4),accent,0,4.9,0,Math.PI/4);
+      add(bevelBox(10.5*k,3.7,7.4*k,0.15),stone,0,0,0);
+      add(gableRoof(10.5*k,2.1,7.4*k,0.55),accent,0,3.9,0);
+      const cg=columnGeo(0.3,2.9);
+      for(let i=0;i<4;i++) add(cg,stone,-3.6*k+i*2.4*k,0,3.9*k);
+      add(bevelBox(10*k,0.5,1.1,0.08),stone,0,2.9,3.9*k);
+      add(stepsGeo(4),stoneDark,0,0,4.6*k);
       break; }
-    default: { // shrinehouse
-      add(new THREE.BoxGeometry(4.4*k,2.6,4.4*k),stone,0,1.3,0);
-      add(new THREE.ConeGeometry(3.6*k,2,4),accent,0,3.6,0,Math.PI/4);
-      add(new THREE.ConeGeometry(2.6*k,1.6,4),accent,0,5,0,Math.PI/4);
+    default: { // shrinehouse: a small two-roofed pagoda
+      add(bevelBox(4.6*k,2.4,4.6*k,0.12),stone,0,0,0);
+      add(gableRoof(5.4*k,1.3,5.4*k,0.4),accent,0,2.5,0);
+      add(bevelBox(2.6*k,1.5,2.6*k,0.1),stone,0,3.7,0);
+      add(gableRoof(3.4*k,1.1,3.4*k,0.35),accent,0,5.2,0);
+      add(finialGeo(0.22),gold,0,6.3,0);
+      add(stepsGeo(2.6),stoneDark,0,0,2.6*k+0.6);
       break; }
   }
   // idol or empty niche
   if(a.iconic&&a.form!=='grove'){
     const idol=new THREE.Group();
     const im=new THREE.MeshLambertMaterial({color:0xd8ba6a,emissive:0x2a2008});
-    const b1=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.5,1.4,6),im); b1.position.y=0.7; idol.add(b1);
-    const b2=new THREE.Mesh(new THREE.SphereGeometry(0.34,7,6),im); b2.position.y=1.7; idol.add(b2);
+    const body=new THREE.Mesh(latheGeo([[0.5,0],[0.42,0.15],[0.24,0.5],[0.3,0.95],[0.34,1.25],[0.2,1.42],[0,1.46]],16),im);
+    idol.add(body);
+    const hd=new THREE.Mesh(new THREE.SphereGeometry(0.26,14,10),im); hd.position.y=1.66; idol.add(hd);
+    const halo=new THREE.Mesh(new THREE.TorusGeometry(0.42,0.045,8,24),gold.clone()); halo.position.set(0,1.72,-0.16); idol.add(halo);
     idol.position.set(0,0.6,a.form==='forum'?0:4.2);
     grp.add(idol);
     Bubble.idol=idol;
@@ -2988,8 +3220,9 @@ function buildTemple(f,at,B,scaleMul){
     const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,5,5),stone);
     pole.position.set(3.2,2.5,3.6); grp.add(pole);
   }
-  // altar out front
-  Bubble.altar=add(new THREE.BoxGeometry(1.6,1,1),stone,0,0.5,6.5);
+  // altar out front: a carved pedestal and bowl
+  Bubble.altar=add(latheGeo([[0.85,0],[0.7,0.14],[0.42,0.3],[0.4,0.72],[0.62,0.86],[0.72,1.0],[0.5,1.05],[0,1.06]],18),stone,0,0,6.5);
+  grp.traverse(o=>{ if(o.isMesh){ o.castShadow=true; o.receiveShadow=true; } });
   grp.position.y=groundY(at.x,at.z,Bubble.setId);
   Bubble.group.add(grp);
   Bubble.temple=grp;
@@ -3157,13 +3390,18 @@ function updateBubble(dtReal){
   if(World.speed<=2){
     Bubble.sun.position.set(Math.cos(dayFrac*TAU)*80,Math.max(6,sunH*90),40);
     Bubble.sun.intensity=clamp01(0.25+sunH)*1.15;
-    Bubble.amb.intensity=0.45+clamp01(sunH)*0.45;
+    Bubble.amb.intensity=0.2+clamp01(sunH)*0.15;
+    Bubble.hemi.intensity=0.3+clamp01(sunH)*0.4;
+    Bubble.fill.intensity=0.15+clamp01(sunH)*0.2;
     Bubble.lampMat.opacity=clamp01(-sunH+0.3);
+    if(Bubble.winMat) Bubble.winMat.opacity=clamp01(-sunH+0.35)*0.95;
     const dusk=clamp01(1-Math.abs(sunH));
     Bubble.scene.background.setRGB(0.04+clamp01(sunH)*0.3+dusk*0.12,0.06+clamp01(sunH)*0.32,0.1+clamp01(sunH)*0.4);
     Bubble.scene.fog.color.copy(Bubble.scene.background);
   } else {
-    Bubble.sun.intensity=1.1; Bubble.amb.intensity=0.8; Bubble.lampMat.opacity=0;
+    Bubble.sun.intensity=1.05; Bubble.amb.intensity=0.25; Bubble.hemi.intensity=0.65;
+    Bubble.fill.intensity=0.32; Bubble.lampMat.opacity=0;
+    if(Bubble.winMat) Bubble.winMat.opacity=0;
   }
   if(Bubble.idol) Bubble.idol.rotation.y+=dtReal*0.1;
   if(Bubble.moon){
