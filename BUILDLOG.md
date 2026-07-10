@@ -122,3 +122,23 @@ windows at night; a CSS vignette ties the frame to the vellum UI. Polygon
 budget was never the constraint (the scene still sits well under 30 draw
 calls); silhouette was. Verified: all archetypes build without error, full
 interaction sweep clean, zoom round trip clean.
+
+## The polygon-richness pass
+Second graphics request: assets still read placeholder. Changes: all lathe,
+dome, column, finial, and bell profiles roughly doubled in radial segments;
+bevel and curve segments raised; canopies and stones to two subdivision
+levels; the globe to icosahedron detail 7; bubble ground to 96x96. People
+gained a sash and denser heads and hoods. Houses gained doors, ridge beams,
+and a pushed-back ring so the square breathes. The plaza is now flagstone
+paving drawn per settlement to a canvas (concentric stone courses with a
+medallion) inside a carved kerb ring. Box-built sanctuaries (cathedral, hall,
+monastery, shrinehouse) get façade dressing: cornice, pilaster strips, and an
+arched portal with a dark recess; cathedral buttresses now shoulder the nave.
+Banners are cloth (vertex-waved from the pole edge, with a gilded pole
+finial), pyres and bonfires give smoke (recycled sprites), and birds circle
+the sanctuary by day. Fixed in passing: bevelBox floated every beveled block
+one full height above its base (roofs had been hiding it); animist lineages
+no longer always build groves (spirit-houses when natureStance is low), so an
+animist-dominated world is not a monoculture of clearings. Scene cost after
+all of it: roughly 400k triangles and about 31 draw calls, still far inside
+the perf floor on hardware GPUs.
