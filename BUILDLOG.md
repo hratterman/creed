@@ -142,3 +142,15 @@ no longer always build groves (spirit-houses when natureStance is low), so an
 animist-dominated world is not a monoculture of clearings. Scene cost after
 all of it: roughly 400k triangles and about 31 draw calls, still far inside
 the perf floor on hardware GPUs.
+
+## The figures-and-fire pass
+Third graphics request: houses overlapped, people read as pawns, the bonfire
+was a cone. Houses and trees now place by rejection sampling with keep-out
+zones (the square, the sanctuary ground, the minority shrine, each other), so
+nothing interpenetrates. People split into two instanced meshes sharing one
+matrix stream: the robe (hood, sash, sleeves) tinted by faith, and a skin
+mesh (face and folded hands) with per-person skin tone and build; idle
+figures sway faintly. Fire is now a made thing: a log tepee in a ring of
+stones, three nested additive flame layers that wobble and counter-rotate, a
+flickering point light, rising embers among the smoke; bonfires and cremation
+pyres share it, while burial faiths keep a mound and headstone instead.
