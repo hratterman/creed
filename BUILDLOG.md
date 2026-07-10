@@ -154,3 +154,12 @@ figures sway faintly. Fire is now a made thing: a log tepee in a ring of
 stones, three nested additive flame layers that wobble and counter-rotate, a
 flickering point light, rising embers among the smoke; bonfires and cremation
 pyres share it, while burial faiths keep a mound and headstone instead.
+
+## Archetype variation
+Question raised: do all temples look the same? Nine belief-driven archetypes
+were already distinct; within an archetype, proportions were identical. Each
+faith now carries three variation genes derived from its id (vertical reach,
+secondary masses, ornament count) applied across every archetype: tower and
+tier heights, dome mass, minaret reach, wall heights, colonnade counts, grove
+stone counts. Two cathedral faiths now build recognizably kin but different
+sanctuaries. A contact-sheet test renders all nine forms plus kin variants.
