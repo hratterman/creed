@@ -651,10 +651,37 @@ function genPeoples(G){
       cond:{war:0,pestilence:0,famine:0,oppression:0,uprooting:0},
       divergence:{}, holySite:null, ruins:[], festivalT:0 });
   }
+  // the hard country is settled too: each culture pushes an outpost or two
+  // into its deserts, steppes, and high cold, where the roads and rites
+  // will look nothing like the river towns
+  World.cells.forEach(c=>c._taken=false);
+  for(const st of sets) World.cells[st.cell]._taken=true;
+  for(const cu of World.cultures){
+    for(const wanted of [[BIOME.DESERT,BIOME.STEPPE],[BIOME.TUNDRA,BIOME.ALPINE]]){
+      if(sets.length>=86) break;
+      const cands=World.cells.filter(c=>c.elev>0&&c.culture===cu.id&&wanted.includes(c.biome)&&!c._taken);
+      if(!cands.length||G()<0.25) continue;
+      let best=null,bs=-1;
+      for(const c of cands){
+        let sep=true;
+        for(const st of sets) if(c.p.dot(World.cells[st.cell].p)>MINSEP){ sep=false; break; }
+        if(!sep) continue;
+        const sc2=habScore(c)+G()*0.1;
+        if(sc2>bs){bs=sc2;best=c;}
+      }
+      if(best){
+        best._taken=true;
+        sets.push({ id:sets.length, cell:best.id, culture:cu.id, pop:0, kind:'village',
+          pool:{}, poolT:{}, prosperity:0.35, unrest:0, literacy:0.02,
+          cond:{war:0,pestilence:0,famine:0,oppression:0,uprooting:0},
+          divergence:{}, holySite:null, ruins:[], festivalT:0 });
+      }
+    }
+  }
   for(const s of sets){
     const c=World.cells[s.cell];
     s.name = makeName(World.cultures[s.culture].ph,2,3);
-    s.pop = Math.round(400 + habScore(c)*2600*(0.6+G()*0.8));
+    s.pop = Math.round(400 + Math.max(0.12,habScore(c))*2600*(0.6+G()*0.8));
     c.settlement=s.id;
   }
   // capitals: biggest settlement per culture
@@ -2307,6 +2334,7 @@ function download(fname,text){
    roads, holy sites, fronts, sky) and the label layer.
    ============================================================ */
 const R3 = {};   // render state
+const ELEV = 3.2;   // vertical exaggeration; low enough that the limb stays round
 
 function elevAt(p){ // continuous elevation for smooth terrain (same fields as cells)
   const f=warpedFbm(p.x*1.6,p.y*1.6,p.z*1.6,5);
@@ -2386,7 +2414,7 @@ function buildGlobe(){
     const e=elevAt(tmp);
     const c=nearestCell(tmp);
     const h=Math.max(0,e);
-    pos.setXYZ(i,tmp.x*(PLANET_R+h*7),tmp.y*(PLANET_R+h*7),tmp.z*(PLANET_R+h*7));
+    pos.setXYZ(i,tmp.x*(PLANET_R+h*ELEV),tmp.y*(PLANET_R+h*ELEV),tmp.z*(PLANET_R+h*ELEV));
     let col;
     if(e<=0) col=BIOME_COL[c&&c.temp<-8?BIOME.ICE:BIOME.OCEAN];
     else col=BIOME_COL[c?c.biome:BIOME.GRASS];
@@ -2401,7 +2429,7 @@ function buildGlobe(){
   R3.globe=new THREE.Mesh(g,new THREE.MeshLambertMaterial({vertexColors:true}));
   R3.scene.add(R3.globe);
   // ocean
-  R3.ocean=new THREE.Mesh(new THREE.IcosahedronGeometry(PLANET_R+0.02,5),
+  R3.ocean=new THREE.Mesh(new THREE.SphereGeometry(PLANET_R+0.02,128,96),
     new THREE.MeshPhongMaterial({color:0x2a5a8e,transparent:true,opacity:0.78,shininess:90,specular:0x557799}));
   R3.scene.add(R3.ocean);
   // the air itself: a limb glow, brightest at the planet's edge, thinning to space
@@ -2476,7 +2504,7 @@ function updatePings(dtReal){
 }
 function cellSurfacePos(c,lift){
   const h=Math.max(0,c.elev);
-  return c.p.clone().multiplyScalar(PLANET_R+h*7+(lift||0.15));
+  return c.p.clone().multiplyScalar(PLANET_R+h*ELEV+(lift||0.15));
 }
 function buildRoads(){
   const verts=[],cols=[];
@@ -2711,7 +2739,7 @@ function updateFronts(){
       const a=World.cells[fr.path[Math.floor(idx)]], b=World.cells[fr.path[Math.min(fr.path.length-1,Math.ceil(idx))]];
       const p=a.p.clone().lerp(b.p,idx%1).normalize();
       const e=Math.max(0,elevAt(p));
-      list.push({p:p.multiplyScalar(PLANET_R+e*7+0.5),f,kind:fr.kind});
+      list.push({p:p.multiplyScalar(PLANET_R+e*ELEV+0.5),f,kind:fr.kind});
     }
   }
   for(const fl of computeFlows()){
@@ -2721,7 +2749,7 @@ function updateFronts(){
       const a=World.cells[fl.path[Math.floor(idx)]], b=World.cells[fl.path[Math.min(fl.path.length-1,Math.ceil(idx))]];
       const p=a.p.clone().lerp(b.p,idx%1).normalize();
       const e=Math.max(0,elevAt(p));
-      list.push({p:p.multiplyScalar(PLANET_R+e*7+0.5),f:fl.f,kind:fl.kind});
+      list.push({p:p.multiplyScalar(PLANET_R+e*ELEV+0.5),f:fl.f,kind:fl.kind});
     }
   }
   if(!R3.frontPts||R3.frontCap<list.length){
@@ -3108,6 +3136,34 @@ function mergeGeos(list){
   return out;
 }
 
+/* Each culture builds in its own manner, learned from the land of its
+   capital: adobe and flat roofs in the drylands, dark timber and steep
+   slate in the cold, plaster and terracotta in the temperate belts. */
+function cultureStyle(cu,biome){
+  // the culture sets the palette family; the local land sets the materials
+  const S=makeStream(World.seed,'culturestyle'+cu);
+  if(biome===BIOME.DESERT||biome===BIOME.STEPPE) return {
+    wall:[0.08+S()*0.03,0.32+S()*0.1,0.58+S()*0.07],
+    roofKind:S()<0.7?'flat':'gable', roof:[0.08,0.25,0.5+S()*0.06], aspect:0.8, dry:true };
+  if(biome===BIOME.TUNDRA||biome===BIOME.ALPINE) return {
+    wall:[0.07,0.2+S()*0.08,0.36+S()*0.07],
+    roofKind:'steep', roof:[0.6+S()*0.08,0.1,0.26+S()*0.06], aspect:1.2, dry:false };
+  if(biome===BIOME.FOREST||biome===BIOME.MARSH) return {
+    wall:[0.08,0.3+S()*0.06,0.44+S()*0.08],
+    roofKind:S()<0.5?'steep':'gable', roof:[0.1+S()*0.04,0.4,0.34+S()*0.05], aspect:1.05, dry:false };
+  // temperate lands build in one of three traditions per culture:
+  // warm plaster, grey fieldstone, or dark timber
+  const fam=rint(S,0,2);
+  if(fam===0) return {
+    wall:[0.07+S()*0.04,0.3+S()*0.1,0.58+S()*0.08],
+    roofKind:'gable', roof:[0.02+S()*0.05,0.5,0.3+S()*0.08], aspect:0.95+S()*0.2, dry:false };
+  if(fam===1) return {
+    wall:[0.09+S()*0.03,0.06+S()*0.05,0.5+S()*0.07],
+    roofKind:S()<0.4?'steep':'gable', roof:[0.6+S()*0.05,0.08,0.3+S()*0.05], aspect:1.0+S()*0.15, dry:false };
+  return {
+    wall:[0.07,0.28+S()*0.08,0.4+S()*0.06],
+    roofKind:S()<0.5?'steep':'gable', roof:[0.1+S()*0.03,0.35,0.5+S()*0.08], aspect:1.1+S()*0.15, dry:false };
+}
 function enterBubble(setId){
   if(Bubble.setId===setId&&Bubble.built) return;
   disposeBubbleContent();
@@ -3160,14 +3216,18 @@ function enterBubble(setId){
   const minor=Object.entries(s.pool).filter(([k,v])=>+k!==dom&&v>0.25&&World.faiths[k]&&!World.faiths[k].deadYear)[0];
   if(minor) buildTemple(World.faiths[minor[0]],v3(26,0,10),B,0.55);
   if(s.ruins.length&&f) buildRuin(v3(-30,0,18),B);
-  // ---- houses: beveled walls, eaved gable roofs, lit windows ----
+  // ---- houses: culture style, settlement layout, lit windows ----
+  const style=cultureStyle(s.culture,c.biome);
   const n=clamp(Math.round(s.pop/60),14,110);
   const wallG=bevelBox(1,1,1,0.06);
-  const roofG=gableRoof(1,0.5,1,0.16);
+  const roofG=style.roofKind==='steep'?gableRoof(1,0.85,1,0.14)
+    :style.roofKind==='flat'?bevelBox(1.06,0.16,1.06,0.04)
+    :gableRoof(1,0.5,1,0.16);
+  const roofPeak=style.roofKind==='steep'?0.85:style.roofKind==='flat'?0:0.5;
   const winG=new THREE.PlaneGeometry(0.16,0.22); winG.translate(0,0,0.005);
   const doorG=new THREE.PlaneGeometry(0.22,0.42); doorG.translate(0,0,0.006);
   const ridgeG=bevelBox(0.1,0.06,1.02,0.02);
-  const wallHue=new THREE.Color().setHSL(0.08+B()*0.04,0.34,0.58);
+  const wallHue=new THREE.Color().setHSL(style.wall[0]+(B()-0.5)*0.02,style.wall[1],style.wall[2]);
   Bubble.houses=new THREE.InstancedMesh(wallG,new THREE.MeshLambertMaterial({color:0xffffff}),n);
   Bubble.roofs=new THREE.InstancedMesh(roofG,new THREE.MeshLambertMaterial({color:0xffffff}),n);
   Bubble.winMat=new THREE.MeshBasicMaterial({color:0xffc868,transparent:true,opacity:0});
@@ -3176,8 +3236,28 @@ function enterBubble(setId){
   Bubble.ridges=new THREE.InstancedMesh(ridgeG,new THREE.MeshLambertMaterial({color:0x5a3524}),n);
   const m=new THREE.Matrix4(),q=new THREE.Quaternion(),sc=new THREE.Vector3(),cc2=new THREE.Color();
   let wi=0;
-  // rejection-sampled placement: houses may not overlap one another, the
-  // square, the sanctuary ground, or the minority shrine
+  // rejection-sampled placement against a per-settlement plan: some towns
+  // grew in rings, some were platted on a grid, some strung along a road
+  const layout = s.kind==='capital' ? (B()<0.55?'grid':'radial')
+    : s.kind==='town' ? rpick(B,['radial','grid','ribbon'])
+    : rpick(B,['radial','ribbon','radial']);
+  const th0=B()*TAU, ux=Math.cos(th0), uz=Math.sin(th0), nx=-uz, nz=ux;
+  const candidate=(w,d2)=>{
+    if(layout==='grid'){
+      const gi=rint(B,-7,7), gj=rint(B,-7,7);
+      const gx=gi*7.4+(B()-0.5)*1.2, gz=gj*6.6+(B()-0.5)*1.2;
+      return {x:ux*gx-uz*gz, z:uz*gx+ux*gz, rot:th0+(B()<0.5?0:Math.PI/2)+(B()-0.5)*0.06};
+    }
+    if(layout==='ribbon'){
+      const t2=(B()*2-1)*95, side=B()<0.5?-1:1;
+      const curve=Math.sin(t2*0.028+th0)*13;
+      const off=curve+side*(4.6+d2*0.5+B()*2.5);
+      const rot=Math.atan2(side*-nx,side*-nz);
+      return {x:ux*t2+nx*off, z:uz*t2+nz*off, rot:rot+(B()-0.5)*0.08};
+    }
+    const a=B()*TAU, r=21+B()*B()*72;
+    return {x:Math.cos(a)*r, z:Math.sin(a)*r*0.85, rot:Math.floor(B()*4)*Math.PI/2+B()*0.2};
+  };
   const placed=[];
   const clearOf=(x,z,rad)=>{
     if(Math.sqrt(x*x+z*z)<19+rad) return false;                    // the square
@@ -3189,13 +3269,26 @@ function enterBubble(setId){
     }
     return true;
   };
+  // the streets themselves, worn into the ground
+  const streetMat=new THREE.MeshLambertMaterial({color:0x8a7a5c});
+  if(layout==='ribbon'||layout==='grid'){
+    const stG=new THREE.PlaneGeometry(210,3.4); stG.rotateX(-Math.PI/2);
+    const st1=new THREE.Mesh(stG,streetMat);
+    st1.rotation.y=-th0; st1.position.y=0.045; st1.receiveShadow=true;
+    Bubble.group.add(st1);
+    if(layout==='grid'){
+      const st2=new THREE.Mesh(stG,streetMat);
+      st2.rotation.y=-th0+Math.PI/2; st2.position.y=0.045; st2.receiveShadow=true;
+      Bubble.group.add(st2);
+    }
+  }
   for(let i=0;i<n;i++){
-    const w=2+B()*2.4, h=1.8+B()*1.4, d2=2+B()*2.4;
+    const w=(2+B()*2.4)*(2-style.aspect)*0.9, h=(1.8+B()*1.4)*style.aspect, d2=(2+B()*2.4)*(2-style.aspect)*0.9;
     const rad=Math.max(w,d2)*0.72;
-    let x=0,z=0,ok=false;
+    let x=0,z=0,rot=0,ok=false;
     for(let t=0;t<24&&!ok;t++){
-      const a=B()*TAU, r=21+B()*B()*72;
-      x=Math.cos(a)*r; z=Math.sin(a)*r*0.85;
+      const cnd=candidate(w,d2);
+      x=cnd.x; z=cnd.z; rot=cnd.rot;
       ok=clearOf(x,z,rad);
     }
     if(!ok){ m.makeScale(0,0,0);
@@ -3204,16 +3297,17 @@ function enterBubble(setId){
       continue; }
     placed.push({x,z,rad});
     const y=groundY(x,z,setId);
-    q.setFromAxisAngle(v3(0,1,0),Math.floor(B()*4)*Math.PI/2+B()*0.2);
+    q.setFromAxisAngle(v3(0,1,0),rot);
     sc.set(w,h,d2); m.compose(v3(x,y,z),q,sc);
     Bubble.houses.setMatrixAt(i,m);
     cc2.copy(wallHue).offsetHSL((B()-0.5)*0.03,(B()-0.5)*0.1,(B()-0.5)*0.12);
     Bubble.houses.setColorAt(i,cc2);
-    sc.set(w,h*0.95,d2); m.compose(v3(x,y+h+0.05,z),q,sc);
+    if(style.roofKind==='flat'){ sc.set(w,1,d2); m.compose(v3(x,y+h+0.02,z),q,sc); }
+    else { sc.set(w,h*0.95,d2); m.compose(v3(x,y+h+0.05,z),q,sc); }
     Bubble.roofs.setMatrixAt(i,m);
-    cc2.setHSL(0.02+B()*0.06,0.5,0.3+B()*0.1);
+    cc2.setHSL(style.roof[0]+(B()-0.5)*0.04,style.roof[1],style.roof[2]+(B()-0.5)*0.08);
     Bubble.roofs.setColorAt(i,cc2);
-    // door, windows, and a ridge beam along the roofline
+    // door, windows, and a ridge beam where the roof has a ridge
     const hm=new THREE.Matrix4().compose(v3(x,0,z),q,new THREE.Vector3(1,1,1));
     const nw=1+(B()<0.5?1:0);
     for(let k=0;k<nw;k++){
@@ -3223,20 +3317,27 @@ function enterBubble(setId){
     }
     m.copy(hm).multiply(new THREE.Matrix4().makeTranslation(0.02*w,y,d2*0.51));
     Bubble.doors.setMatrixAt(i,m);
-    m.copy(hm).multiply(new THREE.Matrix4().compose(v3(0,y+h+0.02+h*0.95*0.5,0),new THREE.Quaternion(),new THREE.Vector3(1,1,d2*0.82)));
+    if(roofPeak>0){
+      m.copy(hm).multiply(new THREE.Matrix4().compose(v3(0,y+h+0.02+h*0.95*roofPeak,0),new THREE.Quaternion(),new THREE.Vector3(1,1,d2*0.82)));
+    } else m.makeScale(0,0,0);
     Bubble.ridges.setMatrixAt(i,m);
   }
   for(;wi<n*2;wi++){ m.makeScale(0,0,0); Bubble.windows.setMatrixAt(wi,m); }
   Bubble.houses.castShadow=Bubble.houses.receiveShadow=true;
   Bubble.roofs.castShadow=Bubble.roofs.receiveShadow=true;
   Bubble.group.add(Bubble.houses,Bubble.roofs,Bubble.windows,Bubble.doors,Bubble.ridges);
-  // ---- trees: tapered trunks under soft displaced canopies ----
-  if([BIOME.FOREST,BIOME.RIVER,BIOME.GRASS,BIOME.MARSH].includes(c.biome)){
+  // ---- furniture of rank: stalls and banners for capitals, a well for
+  // towns, haystacks for villages ----
+  buildFurniture(s,f,B,placed,setId);
+  // ---- flora: canopies where it is green, stones where it is dry ----
+  if(!style.dry&&[BIOME.FOREST,BIOME.RIVER,BIOME.GRASS,BIOME.MARSH,BIOME.TUNDRA].includes(c.biome)){
     const nt=c.biome===BIOME.FOREST?80:30;
     const trunkG=latheGeo([[0.24,0],[0.17,1.1],[0.1,2.1],[0,2.25]],8);
     const canG=blobGeo(1.05,2,0.3,setId*0.7); canG.translate(0,2.6,0);
     const can2=blobGeo(0.75,2,0.34,setId*1.9); can2.translate(0.5,3.3,0.3);
-    const canopyG=mergeGeos([canG,can2]);
+    const cold=c.biome===BIOME.TUNDRA;
+    const canopyG=cold?blobGeo(0.55,2,0.25,setId*0.7):mergeGeos([canG,can2]);
+    if(cold) canopyG.translate(0,2.2,0);
     Bubble.trees=new THREE.InstancedMesh(trunkG,new THREE.MeshLambertMaterial({color:0x6a4a30}),nt);
     Bubble.canopies=new THREE.InstancedMesh(canopyG,new THREE.MeshLambertMaterial({color:0xffffff}),nt);
     for(let i=0;i<nt;i++){
@@ -3254,11 +3355,25 @@ function enterBubble(setId){
       m.compose(v3(x,groundY(x,z,setId),z),q,sc);
       Bubble.trees.setMatrixAt(i,m);
       Bubble.canopies.setMatrixAt(i,m);
-      cc2.setHSL(0.24+B()*0.09,0.3+B()*0.12,0.26+B()*0.09);
+      cc2.setHSL(cold?0.35:0.24+B()*0.09,cold?0.14:0.3+B()*0.12,cold?0.3:0.26+B()*0.09);
       Bubble.canopies.setColorAt(i,cc2);
     }
     Bubble.trees.castShadow=true; Bubble.canopies.castShadow=true;
     Bubble.group.add(Bubble.trees,Bubble.canopies);
+  } else if(style.dry){
+    const nr=26;
+    const rockG=blobGeo(0.8,2,0.45,setId*1.3);
+    Bubble.trees=new THREE.InstancedMesh(rockG,new THREE.MeshLambertMaterial({color:0x9a8668}),nr);
+    for(let i=0;i<nr;i++){
+      const a=B()*TAU,r=34+B()*110;
+      const x=Math.cos(a)*r,z=Math.sin(a)*r;
+      sc.set(0.5+B()*1.4,0.35+B()*0.8,0.5+B()*1.4);
+      q.setFromAxisAngle(v3(0,1,0),B()*TAU);
+      m.compose(v3(x,groundY(x,z,setId),z),q,sc);
+      Bubble.trees.setMatrixAt(i,m);
+    }
+    Bubble.trees.castShadow=true;
+    Bubble.group.add(Bubble.trees);
   }
   // ---- people: robes tinted by faith, heads and hands by skin ----
   const np=Bubble.nPeople=clamp(Math.round(s.pop/45),24,170);
@@ -3565,6 +3680,89 @@ function buildRuin(at,B){
   slab.position.y=0.25; grp.add(slab);
   grp.position.y=groundY(at.x,at.z,Bubble.setId);
   Bubble.group.add(grp);
+}
+
+/* ---------- the furniture of rank ---------- */
+function buildFurniture(s,f,B,placed,setId){
+  const stone=new THREE.MeshLambertMaterial({color:0x8a8074});
+  const wood=new THREE.MeshLambertMaterial({color:0x6a4a30});
+  if(s.kind!=='capital'){
+    // the well: a ring, two posts, a little roof
+    const wa=B()*TAU, wx=Math.cos(wa)*18.5, wz=Math.sin(wa)*18.5;
+    const well=new THREE.Group();
+    well.add(new THREE.Mesh(latheGeo([[0.85,0],[0.85,0.55],[0.65,0.6],[0.65,0.06]],20),stone));
+    for(const sx of [-1,1]){
+      const post=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.07,1.6,7),wood);
+      post.position.set(sx*0.7,0.8,0); well.add(post);
+    }
+    const wroof=new THREE.Mesh(gableRoof(1.7,0.5,1.2,0.2),wood);
+    wroof.position.y=1.6; well.add(wroof);
+    well.position.set(wx,groundY(wx,wz,setId),wz);
+    well.traverse(o=>{if(o.isMesh)o.castShadow=true;});
+    Bubble.group.add(well);
+  }
+  if(s.kind!=='village'){
+    // market stalls along the plaza rim: posts, an awning, crates
+    const nst=s.kind==='capital'?5:2;
+    const awnCv=document.createElement('canvas'); awnCv.width=awnCv.height=32;
+    const ag=awnCv.getContext('2d');
+    const awnHue=[10,35,200,285][rint(B,0,3)];
+    ag.fillStyle='#efe6d2'; ag.fillRect(0,0,32,32);
+    ag.fillStyle=hslCss(awnHue,0.45,0.5);
+    for(let i=0;i<4;i++) ag.fillRect(i*8,0,4,32);
+    const awnTex=new THREE.CanvasTexture(awnCv);
+    for(let i=0;i<nst;i++){
+      const a=(i/nst)*TAU+B()*0.5+2.2;
+      const sx=Math.cos(a)*13.6, sz=Math.sin(a)*13.6;
+      const st=new THREE.Group();
+      for(const px of [-1,1]) for(const pz of [-1,1]){
+        const post=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,2.0,6),wood);
+        post.position.set(px*0.9,1.0,pz*0.7); st.add(post);
+      }
+      const awning=new THREE.Mesh(new THREE.PlaneGeometry(2.2,1.8),
+        new THREE.MeshLambertMaterial({map:awnTex,side:THREE.DoubleSide}));
+      awning.rotation.x=-Math.PI/2+0.18; awning.position.y=2.05; st.add(awning);
+      const crate=new THREE.Mesh(bevelBox(0.55,0.5,0.55,0.05),wood);
+      crate.position.set(0.3*(B()-0.5),0,0.2); st.add(crate);
+      st.rotation.y=-a+Math.PI/2;
+      st.position.set(sx,groundY(sx,sz,setId)+0.1,sz);
+      st.traverse(o=>{if(o.isMesh)o.castShadow=true;});
+      Bubble.group.add(st);
+    }
+  }
+  if(s.kind==='capital'&&f){
+    // paired banner poles at the south entry of the square
+    const tex=new THREE.CanvasTexture(f.symbol);
+    for(const sx of [-1,1]){
+      const grp=new THREE.Group();
+      const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.09,4.6,8),stone);
+      pole.position.y=2.3; grp.add(pole);
+      grp.add(new THREE.Mesh(finialGeo(0.11),new THREE.MeshLambertMaterial({color:0xd8b23a,emissive:0x403008})));
+      grp.children[1].position.y=4.6;
+      const flag=new THREE.Mesh(new THREE.PlaneGeometry(1.15,0.8),
+        new THREE.MeshLambertMaterial({map:tex,side:THREE.DoubleSide}));
+      flag.position.set(0.62,4.1,0); grp.add(flag);
+      grp.position.set(sx*4.2,groundY(sx*4.2,17.5,setId),17.5);
+      grp.traverse(o=>{if(o.isMesh)o.castShadow=true;});
+      Bubble.group.add(grp);
+    }
+  }
+  if(s.kind==='village'){
+    // haystacks in the fields beyond the houses
+    const hayG=latheGeo([[0.95,0],[0.8,0.6],[0.4,1.2],[0,1.5]],14);
+    const hay=new THREE.InstancedMesh(hayG,new THREE.MeshLambertMaterial({color:0xb89a52}),8);
+    const m2=new THREE.Matrix4(),q2=new THREE.Quaternion(),s2=new THREE.Vector3();
+    for(let i=0;i<8;i++){
+      const a=B()*TAU, r=52+B()*70;
+      const x=Math.cos(a)*r, z=Math.sin(a)*r;
+      s2.set(0.8+B()*0.7,0.8+B()*0.6,0.8+B()*0.7);
+      q2.setFromAxisAngle(v3(0,1,0),B()*TAU);
+      m2.compose(v3(x,groundY(x,z,setId),z),q2,s2);
+      hay.setMatrixAt(i,m2);
+    }
+    hay.castShadow=true;
+    Bubble.group.add(hay);
+  }
 }
 
 /* ---------- the choreographer ---------- */

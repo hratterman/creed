@@ -192,3 +192,25 @@ worlds, split art direction, unacknowledged interaction, and no first minute.
   human-time holds and holds them longer.
 Verified: zero page errors across intro, transition, deep-speed run, and the
 full interaction sweep.
+
+## The round-globe and many-cities pass
+Two critiques: the globe's limb wobbled, and every settlement was the same
+town. The limb is now a true circle: vertical exaggeration halved (relief
+lives in shading, not silhouette) and the ocean sphere rebuilt at high
+segment count. Settlements gained three axes of real difference:
+- Worldgen now settles the hard country: each culture pushes outposts into
+  its deserts, steppes, tundra, and high cold, which the old
+  top-habitability placement never touched.
+- Building style follows local materials with the culture supplying the
+  palette family: adobe and flat roofs in the drylands, dark timber under
+  steep slate in the cold, and temperate cultures split into plaster,
+  fieldstone, or timber traditions. Dry settlements get rocks and scrub
+  instead of canopy trees; tundra gets sparse dark scrub.
+- Town plans differ: rings, platted grids with crossing streets, or ribbons
+  strung along a curving road, with worn street strips drawn into the
+  ground; houses face their street.
+- Furniture of rank: capitals fly paired faith banners and hold five market
+  stalls, towns get stalls and a roofed well, villages get a well and
+  haystacks in the fields.
+Verified: deep run, interaction sweep, and determinism all clean after the
+worldgen change.
