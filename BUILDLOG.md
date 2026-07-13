@@ -163,3 +163,32 @@ secondary masses, ornament count) applied across every archetype: tower and
 tier heights, dome mass, minaret reach, wall heights, colonnade counts, grove
 stone counts. Two cathedral faiths now build recognizably kin but different
 sanctuaries. A contact-sheet test renders all nine forms plus kin variants.
+
+## The legit-game pass (both tiers)
+Diagnosis: the remaining demo-tells were silence, the hard cut between
+worlds, split art direction, unacknowledged interaction, and no first minute.
+- Sound, fully synthesized (no assets): altitude-scaled wind through a
+  breathing lowpass, crowd murmur in the square, fire crackle, temple bells
+  on director holds, an era drone, a quiet chronicle chime (rate-limited),
+  descent whoosh, click ticks, ping notes. Wakes on first gesture; the note
+  button in the HUD silences it.
+- The globe-to-bubble seam is now a continuous descent: a cloud whiteout
+  (fast in, slow clear) with camera motion unbroken through it; you fall out
+  of the veil steep and high and ease to eye level, and climb out the same
+  way. The old fade-to-black is gone.
+- Color grade: terrain ramps desaturated and warmed at both scales, faith
+  colors pulled toward jewel tones, canopies deepened, bubble sky warmed.
+- Interaction acknowledgment: hover ring and pointer cursor over settlements,
+  gilt selection ring on inspect, expanding ping rings (with a note) where
+  priority events land and wherever an act of fate is placed.
+- The first minute: a designed opening; the world resolves and turns beneath
+  "The Creeds of <world>" with year and era, HUD hidden, skippable on any
+  input.
+- Tier two: chronicle grammar roughly doubled (new phrasings for foundings,
+  endings, crossings, martyrs, persecutions, omens, holy wars, conversions,
+  failed prophecies, blends, festivals, and all rite classes); territory
+  fields composite through a single blur with inked border stippling where
+  dominant faiths meet (a map, not a spray); the director letterboxes its
+  human-time holds and holds them longer.
+Verified: zero page errors across intro, transition, deep-speed run, and the
+full interaction sweep.

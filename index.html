@@ -137,6 +137,20 @@ body.watch #btnWatch:hover{opacity:1;}
 body.uihidden .hideable{opacity:0;pointer-events:none;}
 #hint{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);color:#7a6a4a;font-size:11px;z-index:10;
   font-family:Georgia,serif;font-style:italic;pointer-events:none;}
+#whiteout{position:absolute;inset:0;pointer-events:none;z-index:40;opacity:0;
+  background:radial-gradient(ellipse at 50% 60%, #f2ecdc 30%, #cdd3dc 100%);}
+.cinebar{position:absolute;left:0;right:0;height:0;background:#060403;z-index:25;transition:height .8s cubic-bezier(.4,0,.2,1);pointer-events:none;}
+#cineTop{top:0;} #cineBot{bottom:0;}
+body.cine #cineTop,body.cine #cineBot{height:6.5vh;}
+#introCard{position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  pointer-events:none;opacity:0;transition:opacity 1.6s;}
+body.intro #introCard{opacity:1;}
+#introCard .it1{font-family:Georgia,serif;font-size:52px;color:#e8d9a8;letter-spacing:4px;
+  text-shadow:0 2px 30px rgba(0,0,0,0.8);}
+#introCard .it2{font-family:Georgia,serif;font-style:italic;font-size:18px;color:#c9b47e;margin-top:10px;
+  text-shadow:0 1px 16px rgba(0,0,0,0.8);}
+#introCard .it3{font-family:Georgia,serif;font-style:italic;font-size:13px;color:#8a7a58;margin-top:26px;letter-spacing:2px;}
+body.intro .hideable{opacity:0;pointer-events:none;}
 @media (max-width:880px){
   #chronicle{width:260px;font-size:11px;}
   #faithPanel{display:none;}
@@ -150,6 +164,10 @@ body.uihidden .hideable{opacity:0;pointer-events:none;}
 <body>
 <canvas id="gl"></canvas>
 <div id="vignette"></div>
+<div id="whiteout"></div>
+<div id="cineTop" class="cinebar"></div>
+<div id="cineBot" class="cinebar"></div>
+<div id="introCard"><div class="it1" id="introTitle"></div><div class="it2" id="introSub"></div><div class="it3">a living history of faith</div></div>
 <canvas id="labels"></canvas>
 <canvas id="treeCanvas"></canvas>
 <div id="hud" class="hideable">
@@ -167,6 +185,7 @@ body.uihidden .hideable{opacity:0;pointer-events:none;}
   </div>
   <button class="tbtn" id="btnTree" title="Tree of faiths (T)">Tree</button>
   <button class="tbtn" id="btnWatch" title="Watch mode (C)">Watch</button>
+  <button class="tbtn on" id="btnAudio" title="Sound on or off">♪</button>
 </div>
 <div id="chronicle" class="hideable">
   <div id="chronHead">✦ The Record</div>
@@ -880,8 +899,8 @@ function makeFaith(H, opts){
     holySiteSet: o.homeSet!==undefined?o.homeSet:-1,
     hue: o.hue!==undefined?o.hue: rpick(H,SYMBOL_HUES)+rint(H,-8,8)
   };
-  f.color = hslCss(f.hue, 0.62, 0.55);
-  f.colorDim = hslCss(f.hue, 0.5, 0.38);
+  f.color = hslCss(f.hue, 0.48, 0.52);
+  f.colorDim = hslCss(f.hue, 0.4, 0.37);
   if(v.textuality>0.6) f.scripture = rpick(H,SCRIPT_FORMS)(f.coreName);
   f.tenets = makeTenets(f,H);
   f.creedLine = makeCreedLine(f,H);
@@ -941,7 +960,7 @@ function drawSymbol(f){
   const v=f.vector;
   const cv=document.createElement('canvas'); cv.width=cv.height=64;
   const g=cv.getContext('2d');
-  const bg = hslCss(f.hue,0.35,0.16), fg = hslCss(f.hue,0.75,0.72), gold='#d8b23a';
+  const bg = hslCss(f.hue,0.3,0.15), fg = hslCss(f.hue,0.6,0.68), gold='#d8b23a';
   g.fillStyle=bg; g.fillRect(0,0,64,64);
   g.strokeStyle=fg; g.fillStyle=fg; g.lineWidth=3; g.lineCap='round';
   const cx=32, cy=32;
@@ -1968,7 +1987,9 @@ function emitEvent(cls,priority,text,opts){
   if(World.events.length>24000) World.events.splice(0,4000);
   World.eventBus.push(ev);
   if(text) chronAppend(ev);
-  else if(o.era) chronAppendEra(o.era);
+  else if(o.era){ chronAppendEra(o.era); if(typeof sfx==='function') sfx('drone'); }
+  if(typeof spawnPing==='function'&&ev.setId!==undefined&&ev.setId>=0&&ev.priority>=6
+     &&typeof CameraRig!=='undefined'&&CameraRig.mode==='globe') spawnPing(ev.setId);
 }
 const H_=()=>RNG.H;
 const pickT=(arr)=>arr[Math.floor(Math.random()*arr.length)];   // wording is presentation, not history
@@ -1979,7 +2000,9 @@ function chronFounding(fig,f,s){
   return pickT([
     `In this year one ${fig.name}, ${fig.traits[0]} and ${fig.traits[1]}, began to preach at ${s.name}, and from those sermons grew ${f.name}. The earliest stratum of its scripture still carries the cadence of a single speaking voice.`,
     `${fig.name} of ${s.name} withdrew, returned, and spoke; what was spoken became ${f.name}. Whether the withdrawal lasted forty days or four years the sources cannot agree, which is itself instructive.`,
-    `The founding of ${f.name} is fixed to this year by three independent king-lists. Of ${fig.name} the founder we know little except what the creed says twice daily: "${f.creedLine}"`
+    `The founding of ${f.name} is fixed to this year by three independent king-lists. Of ${fig.name} the founder we know little except what the creed says twice daily: "${f.creedLine}"`,
+    `A tax dispute, a drought, and a voice: the sources for the origin of ${f.name} agree only that ${fig.name} began speaking at ${s.name} in this year and did not stop. The rest is doctrine.`,
+    `${f.name} dates itself from a night at ${s.name} that ${fig.name} never described in writing. The earliest disciples wrote it down anyway, each differently, and each account became a school.`
   ]);
 }
 function chronSchism(parent,child,s,cause,fig){
@@ -2001,20 +2024,25 @@ function chronSyncretism(fa,fb,child,s){
   return pickT([
     `At the crossroads of ${s.name}, where ${fa.name} and ${fb.name} had shared a market and a burial ground for two generations, the two rites braided into one: ${child.name}. The hybrid kept the gentler god of each parent.`,
     `${child.name} first appears at ${s.name} in this year, born where ${fa.name} met ${fb.name} and neither cared to fight. Its liturgy is a seam with the stitching still visible, and it was loved for that.`,
-    `The merchants of ${s.name} prayed in both tongues until the prayers merged. Scholars class ${child.name} as syncretic; its believers classed it as obvious.`
+    `The merchants of ${s.name} prayed in both tongues until the prayers merged. Scholars class ${child.name} as syncretic; its believers classed it as obvious.`,
+    `${child.name} was born at ${s.name} of a mixed marriage, as such creeds usually are: ${fa.name} provided the calendar, ${fb.name} the funeral, and the children kept both.`
   ]);
 }
 function chronEnding(f){
   return pickT([
     `The last believer of ${f.name} died in this year, and no one remained to say the prayers over them. The faith endured ${Math.max(1,Math.floor(World.year-f.originYear))} years; its words survive only as loan-phrases in the creeds of its rivals, so we know it was loved.`,
     `Here the record of ${f.name} goes silent. A single weathered inscription remains, and the habit, in three daughter creeds, of lighting lamps at the turning of the year.`,
-    `${f.name} ends in this year, not by fire but by forgetting. At its height ${fmtNum(f.peakAdherents)} souls held it true.`
+    `${f.name} ends in this year, not by fire but by forgetting. At its height ${fmtNum(f.peakAdherents)} souls held it true.`,
+    `An inventory of a provincial temple, taken in this year, lists the altar furniture of ${f.name} under the heading of curiosities. That is how a faith's death is usually recorded: by an accountant.`,
+    `With ${f.name} ends a way of burying, a way of naming children, and a word for the hour before dawn that no other creed had. Languages keep what faiths lose; the word survives.`
   ]);
 }
 function chronCrossing(f,from,to){
   return pickT([
     `${f.name} crossed into ${to.name} in this year, carried not by any missionary but by the ledgers and lamps of the ${from.name} merchants. The first congregation met in a warehouse; within a century it had the largest roof in the city.`,
-    `The customs receipts of ${to.name} record, among the cargo, a new god. Thus ${f.name} entered a land that had never heard its founder's name.`
+    `The customs receipts of ${to.name} record, among the cargo, a new god. Thus ${f.name} entered a land that had never heard its founder's name.`,
+    `A sailor's grave at ${to.name}, cut with the sign of ${f.name}, is the first trace of the faith so far from home. Graves travel first; congregations follow.`,
+    `${f.name} reached ${to.name} in this year in the usual order: first the oath, sworn by a foreign merchant; then the loan; then the lender's god.`
   ]);
 }
 function chronUpheaval(kind,s){
@@ -2031,13 +2059,15 @@ function chronMartyr(fig,target,sf,s){
   return pickT([
     `At ${s.name} the ${fig.traits[0]} ${fig.name} was put to death rather than renounce ${target.name}, and the death was witnessed. The persecutors kept the records that would undo them: within a generation the martyr's name was given to children on both sides.`,
     `${fig.name} died at ${s.name} for refusing the state rite, and ${target.name} was watered by it. Blood, the sources agree, is a seed.`,
-    `The execution of ${fig.name} was meant to end ${target.name} at ${s.name}; the crowd went home converted instead. Power rarely understands what a witnessed death does.`
+    `The execution of ${fig.name} was meant to end ${target.name} at ${s.name}; the crowd went home converted instead. Power rarely understands what a witnessed death does.`,
+    `${fig.name} was offered the usual bargain at ${s.name}: a pinch of incense on the state altar, and life. The refusal took a moment; the consequences for ${target.name} took centuries.`
   ]);
 }
 function chronPersecution(civ,sf,target){
   return pickT([
     `The throne of ${civ.name}, secure in ${sf.name}, moved against ${target.name}: its meetings forbidden, its books burned, its believers marked. The faith went under the floorboards, where such faiths harden.`,
-    `In this year ${target.name} was proscribed throughout ${civ.name}. The edict survives; so, against the edict's intent, did the faith.`
+    `In this year ${target.name} was proscribed throughout ${civ.name}. The edict survives; so, against the edict's intent, did the faith.`,
+    `The magistrates of ${civ.name} moved against ${target.name} in this year with lists, informers, and fire. The lists survive, and are our best census of the faith they were meant to erase.`
   ]);
 }
 function chronSurvival(target,sf){
@@ -2055,7 +2085,8 @@ function chronIconoclasm(site,s,byFaith){
 function chronHolyWar(a,b,fa,fb){
   return pickT([
     `The war between ${a.name} and ${b.name} was preached before it was declared: ${fa.name} and ${fb.name} each held the other's truth to be the enemy of truth itself. The chronicles of both sides call it holy; the burned villages did not record an opinion.`,
-    `In this year the quarrel of ${fa.name} with ${fb.name} put armies on the roads. Holy war is the one institution both faiths agreed on.`
+    `In this year the quarrel of ${fa.name} with ${fb.name} put armies on the roads. Holy war is the one institution both faiths agreed on.`,
+    `${a.name} marched against ${b.name} under banners of ${fa.name}, and were met under banners of ${fb.name}. Both liturgies now included the other side by name, which is its own kind of intimacy.`
   ]);
 }
 function chronWar(a,b){
@@ -2071,7 +2102,8 @@ function chronWarEnd(win,lose,wf,holy){
 function chronRulerConv(ruler,civ,f,cap){
   return pickT([
     `The ruler ${ruler.name} of ${civ.name} received ${f.name} in this year, and the court followed the crown as courts do. Whether the conversion was of the heart or of the treasury, its consequences were identical.`,
-    `${ruler.name} was baptized into ${f.name} at ${cap.name}, and a whole society began, slowly, to tilt after its throne.`
+    `${ruler.name} was baptized into ${f.name} at ${cap.name}, and a whole society began, slowly, to tilt after its throne.`,
+    `In this year ${f.name} gained its most useful convert: ${ruler.name}, ruler of ${civ.name}, who brought no great piety but brought the mint, the courts, and the calendar.`
   ]);
 }
 function chronScripture(fig,f,s){
@@ -2096,7 +2128,8 @@ function chronProphecyNamed(f){
 function chronProphecyFail(f,date){
   return pickT([
     `The year named by ${f.name} for the end of the world arrived, and the world, with its usual indifference, continued. The disappointment is legible in the record as a sudden silence of votive offerings.`,
-    `${fmtYear(date)}, long promised by ${f.name} as the last, proved instead to be ordinary. Some believers left quietly; the inscriptions of the following decade are fewer and smaller.`
+    `${fmtYear(date)}, long promised by ${f.name} as the last, proved instead to be ordinary. Some believers left quietly; the inscriptions of the following decade are fewer and smaller.`,
+    `On the promised morning the believers of ${f.name} climbed their roofs; by evening they climbed down. The record treats what followed gently, as the record should.`
   ]);
 }
 function chronProphecyReinterp(f,date){
@@ -2118,7 +2151,8 @@ function chronOmen(kind){
   const what=kind==='comet'?'a great comet stood in the sky for a season':kind==='eclipse'?'the sun was darkened at midday':'the moon rose the color of embers';
   return pickT([
     `In this year ${what}. Believers read it as a word from beyond; skeptics read it as weather. The record, faithful to both, reports only that everyone looked up.`,
-    `${what.charAt(0).toUpperCase()+what.slice(1)}, and every faith explained it, each differently, each with confidence.`
+    `${what.charAt(0).toUpperCase()+what.slice(1)}, and every faith explained it, each differently, each with confidence.`,
+    `In this year ${what}. Grain prices moved; three heresies date their founding visions to that week; a princess was renamed.`
   ]);
 }
 function chronGodComes(f){
@@ -2146,19 +2180,31 @@ function chronRevival(){
 function chronFestival(f,s){
   return pickT([
     `The festival of ${f.name} filled ${s.name}: lamps, garlands, the year's marriages, and the noise of a faith at ease with joy.`,
-    `At ${s.name} the holy days of ${f.name} were kept with feasting; the sermon, one visitor recorded, was mercifully short.`
+    `At ${s.name} the holy days of ${f.name} were kept with feasting; the sermon, one visitor recorded, was mercifully short.`,
+    `The festival of ${f.name} at ${s.name} ran three days; the debts it created ran considerably longer, and appear in the loan-tablets with the notation: incurred in joy.`
   ]);
 }
 function chronRite(kind,f,s){
   const m={
-    prayer:`At ${s.name} the believers of ${f.name} gathered to pray in the manner of their rite, and a traveler who saw it wrote that the silence was the loudest part.`,
-    funeral:`A funeral was held at ${s.name} after the manner of ${f.name}; the rite tells us more about the faith than its catechism does.`,
-    sermon:`A preacher of ${f.name} gathered a crowd at ${s.name}. Some scoffed, some lingered; three names in the tax rolls change their patron-formula the following year.`,
-    sacrifice:`Offerings were made at the high altar of ${s.name} according to the rite of ${f.name}, the smoke read for omens.`,
-    wedding:`A wedding at ${s.name} was blessed under the signs of ${f.name}, with the customary feasting and one recorded theological argument among the guests.`,
-    pilgrimage:`Pilgrims of ${f.name} arrived at ${s.name} footsore from the long road; the innkeepers of the town had long ago become the faith's most sincere defenders.`
+    prayer:[`At ${s.name} the believers of ${f.name} gathered to pray in the manner of their rite, and a traveler who saw it wrote that the silence was the loudest part.`,
+      `The evening prayer of ${f.name} at ${s.name} is described in a merchant's letter of this year, mostly as an obstacle to closing a sale before dark.`],
+    funeral:[`A funeral was held at ${s.name} after the manner of ${f.name}; the rite tells us more about the faith than its catechism does.`,
+      `At ${s.name} the dead were seen off according to ${f.name}. The mourners' clothes, the direction of the grave, the words at the threshold: all doctrine, worn as habit.`],
+    sermon:[`A preacher of ${f.name} gathered a crowd at ${s.name}. Some scoffed, some lingered; three names in the tax rolls change their patron-formula the following year.`,
+      `On a market day at ${s.name} a voice was raised for ${f.name}. The town remembered the heckling longer than the sermon, and the sermon longer than it admitted.`],
+    sacrifice:[`Offerings were made at the high altar of ${s.name} according to the rite of ${f.name}, the smoke read for omens.`,
+      `The altar of ${f.name} at ${s.name} received its due in this season. What was asked in return is not recorded; it never is.`],
+    procession:[`The banner of ${f.name} was carried through ${s.name} with lamps and song, the route the same as the year before, and the year before that, back beyond memory.`,
+      `A procession of ${f.name} circled ${s.name} in this season; the children who ran alongside it grew old and told their grandchildren they had walked in front.`],
+    festival:[`The festival of ${f.name} filled ${s.name} with lamps and noise.`,
+      `The holy days of ${f.name} were kept at ${s.name} with feasting.`],
+    wedding:[`A wedding at ${s.name} was blessed under the signs of ${f.name}, with the customary feasting and one recorded theological argument among the guests.`,
+      `Two houses of ${s.name} were joined under the signs of ${f.name}; the contract survives, and is one third theology, two thirds livestock.`],
+    pilgrimage:[`Pilgrims of ${f.name} arrived at ${s.name} footsore from the long road; the innkeepers of the town had long ago become the faith's most sincere defenders.`,
+      `The pilgrim season brought ${f.name} to ${s.name} again: dust, song, blisters, and the particular joy of arriving.`]
   };
-  return m[kind]||m.prayer;
+  const arr=m[kind]||m.prayer;
+  return pickT(arr);
 }
 
 /* ---------- chronicle DOM ---------- */
@@ -2186,6 +2232,11 @@ function chronAppend(ev){
   while(el.children.length>250) el.removeChild(el.firstChild);
   const nearBottom = el.scrollHeight-el.scrollTop-el.clientHeight<160;
   if(nearBottom) el.scrollTop=el.scrollHeight;
+  // a quiet chime as each entry is set down, never more than one a second
+  if(typeof sfx==='function'&&typeof AudioSys!=='undefined'){
+    const now=performance.now();
+    if(now-AudioSys.lastChime>1100&&World.speed<=3){ AudioSys.lastChime=now; sfx('chime'); }
+  }
 }
 function chronAppendEra(name){
   const el=chronScrollEl(); if(!el) return;
@@ -2287,10 +2338,10 @@ function nearestCell(p){
   return best;
 }
 const BIOME_COL={
-  [BIOME.OCEAN]:[0.09,0.19,0.34],[BIOME.COAST]:[0.16,0.32,0.44],[BIOME.RIVER]:[0.32,0.5,0.28],
-  [BIOME.MARSH]:[0.3,0.42,0.3],[BIOME.GRASS]:[0.45,0.55,0.3],[BIOME.FOREST]:[0.22,0.4,0.22],
-  [BIOME.DESERT]:[0.75,0.64,0.42],[BIOME.STEPPE]:[0.58,0.54,0.34],[BIOME.ALPINE]:[0.52,0.5,0.5],
-  [BIOME.TUNDRA]:[0.55,0.56,0.52],[BIOME.ICE]:[0.88,0.9,0.95]
+  [BIOME.OCEAN]:[0.10,0.19,0.31],[BIOME.COAST]:[0.17,0.31,0.40],[BIOME.RIVER]:[0.33,0.44,0.27],
+  [BIOME.MARSH]:[0.31,0.38,0.28],[BIOME.GRASS]:[0.44,0.48,0.29],[BIOME.FOREST]:[0.25,0.35,0.22],
+  [BIOME.DESERT]:[0.69,0.59,0.41],[BIOME.STEPPE]:[0.55,0.50,0.34],[BIOME.ALPINE]:[0.50,0.48,0.46],
+  [BIOME.TUNDRA]:[0.52,0.52,0.48],[BIOME.ICE]:[0.85,0.87,0.91]
 };
 
 function initRenderer(){
@@ -2379,7 +2430,49 @@ function buildGlobe(){
   buildSites();
   buildSettlementMarkers();
   R3.frontPts=null;
+  // hover ring, selection ring, and a small pool of event pings
+  const ringG=new THREE.RingGeometry(1.15,1.5,40);
+  R3.hoverRing=new THREE.Mesh(ringG,new THREE.MeshBasicMaterial({color:0xf0e0a8,transparent:true,
+    opacity:0.75,side:THREE.DoubleSide,depthWrite:false}));
+  R3.hoverRing.visible=false; R3.scene.add(R3.hoverRing);
+  R3.selRing=new THREE.Mesh(ringG,new THREE.MeshBasicMaterial({color:0xd8b23a,transparent:true,
+    opacity:0.95,side:THREE.DoubleSide,depthWrite:false}));
+  R3.selRing.visible=false; R3.scene.add(R3.selRing);
+  R3.pings=[];
+  for(let i=0;i<5;i++){
+    const p=new THREE.Mesh(ringG,new THREE.MeshBasicMaterial({color:0xf4e0a0,transparent:true,
+      opacity:0,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending}));
+    p.visible=false; p.userData.t=99;
+    R3.scene.add(p); R3.pings.push(p);
+  }
   refreshOverlay(true);
+}
+function placeRingAt(ring,setId,scale){
+  const s=World.settlements[setId];
+  if(!s){ ring.visible=false; return; }
+  const c=World.cells[s.cell];
+  ring.position.copy(cellSurfacePos(c,0.6));
+  ring.quaternion.setFromUnitVectors(v3(0,0,1),c.p);
+  ring.scale.setScalar(scale||1.6);
+  ring.visible=true;
+}
+function spawnPing(setId){
+  if(!R3.pings) return;
+  const p=R3.pings.find(x=>x.userData.t>=1.4)||R3.pings[0];
+  placeRingAt(p,setId,1);
+  p.userData.t=0;
+  if(typeof sfx==='function'&&CameraRig.mode==='globe') sfx('ping');
+}
+function updatePings(dtReal){
+  if(!R3.pings) return;
+  for(const p of R3.pings){
+    if(p.userData.t>=1.4){ p.visible=false; continue; }
+    p.userData.t+=dtReal;
+    const t=p.userData.t/1.4;
+    p.scale.setScalar(1+t*7);
+    p.material.opacity=0.85*(1-t);
+    p.visible=true;
+  }
 }
 function cellSurfacePos(c,lift){
   const h=Math.max(0,c.elev);
@@ -2470,9 +2563,13 @@ function buildSky(){
 
 /* ---------- overlays ---------- */
 let overlayMode='faiths';
-let ovTimer=0;
+let ovTimer=0, ovTmp=null;
 function refreshOverlay(force){
-  const g=R3.ovCanvas.getContext('2d');
+  const gMain=R3.ovCanvas.getContext('2d');
+  // territory fields draw to a scratch canvas, composite through one blur,
+  // then take inked border stippling on top: a map, not a spray
+  if(!ovTmp){ ovTmp=document.createElement('canvas'); ovTmp.width=1024; ovTmp.height=512; }
+  const g=ovTmp.getContext('2d');
   g.clearRect(0,0,1024,512);
   const cellR=1024/Math.sqrt(NCELLS)*0.6;
   for(const c of World.cells){
@@ -2519,7 +2616,30 @@ function refreshOverlay(force){
     if(!col) continue;
     const x=(c.lon+180)/360*1024, y=(90-c.lat)/180*512;
     g.fillStyle=col;
-    g.beginPath();g.arc(x,y,cellR*1.02,0,TAU);g.fill();
+    g.beginPath();g.arc(x,y,cellR*1.12,0,TAU);g.fill();
+  }
+  gMain.clearRect(0,0,1024,512);
+  try{ gMain.filter='blur(3px)'; gMain.drawImage(ovTmp,0,0); gMain.filter='none'; }
+  catch(e){ gMain.drawImage(ovTmp,0,0); }
+  // inked boundaries where dominant faiths meet
+  if(overlayMode==='faiths'){
+    const dom={};
+    for(const st of World.settlements) dom[st.id]=dominantFaith(st);
+    gMain.fillStyle='rgba(24,16,8,0.55)';
+    for(const c of World.cells){
+      if(c.elev<=0||c.nearSet<0) continue;
+      const fa=dom[c.nearSet];
+      if(fa===null) continue;
+      for(const ni of c.nbr){
+        const o=World.cells[ni];
+        if(ni<c.id||o.elev<=0||o.nearSet<0) continue;
+        const fb=dom[o.nearSet];
+        if(fb===null||fb===fa) continue;
+        const mx=((c.lon+o.lon)/2+180)/360*1024, my=(90-(c.lat+o.lat)/2)/180*512;
+        if(Math.abs(c.lon-o.lon)>180) continue;   // seam wrap
+        gMain.beginPath(); gMain.arc(mx,my,2.1,0,TAU); gMain.fill();
+      }
+    }
   }
   R3.ovTex.needsUpdate=true;
   R3.ovMesh.visible=overlayMode!=='terrain';
@@ -3012,7 +3132,7 @@ function enterBubble(setId){
       + SIMPLEX2(x*0.008,5,z*0.008)*5*smoothstep(clamp01((d-60)/100));
     gp.setY(i,h);
     const v=0.9+SIMPLEX(x*0.12,9,z*0.12)*0.14;
-    gc[i*3]=biomeCol[0]*v*1.25; gc[i*3+1]=biomeCol[1]*v*1.25; gc[i*3+2]=biomeCol[2]*v*1.25;
+    gc[i*3]=biomeCol[0]*v*1.1; gc[i*3+1]=biomeCol[1]*v*1.1; gc[i*3+2]=biomeCol[2]*v*1.08;
   }
   gg.setAttribute('color',new THREE.BufferAttribute(gc,3));
   gg.computeVertexNormals();
@@ -3134,7 +3254,7 @@ function enterBubble(setId){
       m.compose(v3(x,groundY(x,z,setId),z),q,sc);
       Bubble.trees.setMatrixAt(i,m);
       Bubble.canopies.setMatrixAt(i,m);
-      cc2.setHSL(0.26+B()*0.09,0.42+B()*0.15,0.28+B()*0.1);
+      cc2.setHSL(0.24+B()*0.09,0.3+B()*0.12,0.26+B()*0.09);
       Bubble.canopies.setColorAt(i,cc2);
     }
     Bubble.trees.castShadow=true; Bubble.canopies.castShadow=true;
@@ -3606,7 +3726,7 @@ function updateBubble(dtReal){
     Bubble.lampMat.opacity=clamp01(-sunH+0.3);
     if(Bubble.winMat) Bubble.winMat.opacity=clamp01(-sunH+0.35)*0.95;
     const dusk=clamp01(1-Math.abs(sunH));
-    Bubble.scene.background.setRGB(0.04+clamp01(sunH)*0.3+dusk*0.12,0.06+clamp01(sunH)*0.32,0.1+clamp01(sunH)*0.4);
+    Bubble.scene.background.setRGB(0.06+clamp01(sunH)*0.32+dusk*0.13,0.07+clamp01(sunH)*0.31,0.10+clamp01(sunH)*0.34);
     Bubble.scene.fog.color.copy(Bubble.scene.background);
   } else {
     Bubble.sun.intensity=1.05; Bubble.amb.intensity=0.25; Bubble.hemi.intensity=0.65;
@@ -3753,9 +3873,10 @@ function updateCamera(dtReal){
     R3.camera.lookAt(0,2.5,-4);
     if(C.bDist>=149&&C.fadeDir===0) beginTransition('globe',-1);
   }
-  // crossfade between worlds
+  // the veil of cloud between worlds: whiteout in fast, clear out slow,
+  // with the camera motion continuous through it
   if(C.fadeDir!==0){
-    C.fade+=dtReal*2.4*C.fadeDir;
+    C.fade+=dtReal*(C.fadeDir>0?3.0:-1.5);
     if(C.fade>=1){ C.fade=1; C.fadeDir=-1; applyPendingMode(); }
     if(C.fade<=0){ C.fade=0; C.fadeDir=0; }
   }
@@ -3777,6 +3898,7 @@ let pendingMode=null;
 function beginTransition(mode,sid){
   pendingMode={mode,sid};
   CameraRig.fadeDir=1; CameraRig.fade=Math.max(CameraRig.fade,0.001);
+  if(typeof sfx==='function') sfx('whoosh');
 }
 function applyPendingMode(){
   const C=CameraRig;
@@ -3784,14 +3906,18 @@ function applyPendingMode(){
   if(pendingMode.mode==='bubble'){
     enterBubble(pendingMode.sid);
     C.mode='bubble'; C.focusSet=pendingMode.sid;
-    C.bDist=C.tbDist=70; C.bPitch=C.tbPitch=0.55; C.tbDist=34;
+    // fall out of the cloud, still descending: high and steep, easing to eye level
+    C.bDist=110; C.bPitch=1.05; C.bYaw=C.tbYaw=Math.random()*TAU;
+    C.tbDist=32; C.tbPitch=0.48;
     showToast(World.settlements[pendingMode.sid].name);
   } else {
     C.mode='globe'; C.focusSet=-1;
     const s=World.settlements[Bubble.setId];
     if(s){ const ll=v3ToLatLon(World.cells[s.cell].p);
       C.lat=C.tLat=ll.lat; C.lon=C.tLon=ll.lon; }
-    C.dist=C.tDist=PLANET_R+BUBBLE_ENTER*1.6;
+    // rise out of the cloud, still climbing
+    C.dist=PLANET_R+BUBBLE_ENTER*1.1;
+    C.tDist=PLANET_R+PLANET_R*0.55;
     disposeBubbleContent();
   }
   pendingMode=null;
@@ -3821,12 +3947,39 @@ function flyToEvent(ev){
   if(sid!==undefined&&sid>=0){ flyTo(sid,PLANET_R*0.3); suspendDirector(); }
   if(ev.faithId!==undefined&&World.faiths[ev.faithId]) inspectFaith(World.faiths[ev.faithId]);
 }
-function suspendDirector(){ CameraRig.manualUntil=performance.now()/1000+30; }
+function suspendDirector(){ CameraRig.manualUntil=performance.now()/1000+30;
+  document.body.classList.remove('cine'); }
 
 /* ---------- input ---------- */
 function initInput(){
   const el=R3.renderer.domElement;
-  let dragging=false,lx=0,ly=0,moved=0;
+  let dragging=false,lx=0,ly=0,moved=0,lastHover=0;
+  // sound wakes on the first gesture, as the browser requires
+  const wake=()=>{ audioInit(); };
+  addEventListener('pointerdown',wake,{once:false});
+  addEventListener('keydown',wake);
+  // any button press clicks
+  document.addEventListener('click',e=>{
+    if(e.target.closest('button,.chip,.dtab,.actBtn,.fp,.entry,.jump')) sfx('click');
+  });
+  // hover ring over settlements at globe scale
+  addEventListener('pointermove',e=>{
+    const now=performance.now();
+    if(now-lastHover<90) return;
+    lastHover=now;
+    if(CameraRig.mode!=='globe'||treeOpen||dragging||!R3.hoverRing){ if(R3.hoverRing) R3.hoverRing.visible=false; return; }
+    if(e.target.closest('#hud,#chronicle,#drawer,#inspector,#treeUI,#faithPanel,#miniTree')){ R3.hoverRing.visible=false; return; }
+    const mouse=new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
+    raycaster.setFromCamera(mouse,R3.camera);
+    const hit=raycaster.intersectObject(R3.globe)[0];
+    if(!hit){ R3.hoverRing.visible=false; document.body.style.cursor=''; return; }
+    const sid=nearestSettlement(hit.point);
+    const s=World.settlements[sid];
+    if(s&&World.cells[s.cell].p.dot(hit.point.clone().normalize())>0.9955){
+      placeRingAt(R3.hoverRing,sid,1.7);
+      document.body.style.cursor='pointer';
+    } else { R3.hoverRing.visible=false; document.body.style.cursor=''; }
+  });
   el.addEventListener('pointerdown',e=>{ dragging=true;lx=e.clientX;ly=e.clientY;moved=0; });
   addEventListener('pointerup',e=>{
     dragging=false;
@@ -4048,6 +4201,7 @@ function directorTick(now,dtReal){
       setSpeed(Director.restoreSpeed,true); Director.restoreSpeed=null;
     }
     Director.active=null;
+    document.body.classList.remove('cine');
   }
   // pick the best pending beat
   let best=null;
@@ -4099,8 +4253,9 @@ function directorTick(now,dtReal){
   }
 }
 function startBeat(ev,now){
-  const dur=ev.hold?rrange(PRES,10,20):rrange(PRES,8,16);
-  Director.cooldowns[ev.cls]=now+40;
+  const dur=ev.hold?rrange(PRES,14,24):rrange(PRES,9,17);
+  Director.cooldowns[ev.cls]=now+48;
+  if(ev.hold){ document.body.classList.add('cine'); sfx('bell'); }
   Director.active={ev,priority:ev.priority,kind:ev.hold?'hold':'montage',started:now};
   Director.until=now+dur;
   showBeatCard(ev);
@@ -4191,6 +4346,7 @@ function initUI(){
     treeFilter=c.dataset.tf; drawTree();
   });
   document.getElementById('inspClose').onclick=hideInspector;
+  document.getElementById('btnAudio').onclick=toggleAudio;
   buildRatesTab(); buildActsTab(); buildOverlaysTab(); buildWorldTab();
   World.showLabels=true;
 }
@@ -4263,6 +4419,8 @@ function performAct(kind,setId){
   const H=RNG.H;
   const s=setId>=0?World.settlements[setId]:rpick(H,World.settlements);
   armAct(null);
+  if(s&&CameraRig.mode==='globe') spawnPing(s.id);
+  sfx('click');
   switch(kind){
     case 'prophet': spawnProphet(s,H,true); break;
     case 'found': {
@@ -4439,7 +4597,8 @@ function updateHUD(){
 /* ---------- Inspector ---------- */
 const insp=()=>document.getElementById('inspector');
 function showInspector(){ insp().style.display='block'; document.getElementById('miniTree').style.display='none'; }
-function hideInspector(){ insp().style.display='none'; document.getElementById('miniTree').style.display='block'; }
+function hideInspector(){ insp().style.display='none'; document.getElementById('miniTree').style.display='block';
+  if(R3.selRing) R3.selRing.visible=false; }
 function inspectFaith(f){
   showInspector();
   document.getElementById('inspImg').src=f.symbolURL;
@@ -4471,6 +4630,7 @@ function inspectFaith(f){
 }
 function inspectSettlement(s){
   showInspector();
+  if(R3.selRing&&CameraRig.mode==='globe') placeRingAt(R3.selRing,s.id,1.9);
   const dom=dominantFaith(s);
   const f=dom!==null?World.faiths[dom]:null;
   document.getElementById('inspImg').src=f?f.symbolURL:'';
@@ -4569,6 +4729,110 @@ function showToast(msg){
   clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity=0,2600);
 }
 /* ============================================================
+   Section: sound. Entirely synthesized (no assets): wind by
+   altitude, crowd murmur, fire crackle, bells, era drones,
+   chronicle chimes, the whoosh of descent. Starts on the first
+   gesture, as browsers require; the note button silences all.
+   ============================================================ */
+const AudioSys={ctx:null,on:true,lastChime:0,lastCrackle:0};
+function audioInit(){
+  if(AudioSys.ctx) { if(AudioSys.ctx.state==='suspended') AudioSys.ctx.resume(); return; }
+  try{ AudioSys.ctx=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ return; }
+  const ctx=AudioSys.ctx;
+  AudioSys.master=ctx.createGain(); AudioSys.master.gain.value=0.55;
+  AudioSys.master.connect(ctx.destination);
+  const nb=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);
+  const d=nb.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  AudioSys.noiseBuf=nb;
+  // wind: looped noise through a slow-breathing lowpass
+  const wind=ctx.createBufferSource(); wind.buffer=nb; wind.loop=true;
+  AudioSys.windFilter=ctx.createBiquadFilter();
+  AudioSys.windFilter.type='lowpass'; AudioSys.windFilter.frequency.value=360; AudioSys.windFilter.Q.value=0.4;
+  AudioSys.windGain=ctx.createGain(); AudioSys.windGain.gain.value=0;
+  wind.connect(AudioSys.windFilter); AudioSys.windFilter.connect(AudioSys.windGain);
+  AudioSys.windGain.connect(AudioSys.master); wind.start();
+  // murmur: slowed noise through a voice-band filter
+  const mur=ctx.createBufferSource(); mur.buffer=nb; mur.loop=true; mur.playbackRate.value=0.22;
+  const mf=ctx.createBiquadFilter(); mf.type='bandpass'; mf.frequency.value=240; mf.Q.value=0.7;
+  AudioSys.murGain=ctx.createGain(); AudioSys.murGain.gain.value=0;
+  mur.connect(mf); mf.connect(AudioSys.murGain); AudioSys.murGain.connect(AudioSys.master); mur.start();
+}
+function audioAmbient(){
+  if(!AudioSys.ctx||AudioSys.ctx.state!=='running') return;
+  const t=AudioSys.ctx.currentTime;
+  let wind=0, mur=0;
+  if(typeof CameraRig!=='undefined'){
+    if(CameraRig.mode==='globe'){
+      wind=0.05+clamp01(camAltitude()/(PLANET_R*2.5))*0.11;
+    } else {
+      wind=0.035;
+      mur=clamp01((Bubble.nPeople||0)/150)*(Bubble.rite?0.11:0.055);
+    }
+  }
+  if(!AudioSys.on){ wind=0; mur=0; }
+  AudioSys.windGain.gain.setTargetAtTime(wind,t,0.5);
+  AudioSys.murGain.gain.setTargetAtTime(mur,t,0.7);
+  AudioSys.windFilter.frequency.setTargetAtTime(320+Math.sin(performance.now()/2700)*150,t,0.6);
+  // fire crackle: sparse filtered ticks while flames burn nearby
+  if(AudioSys.on&&CameraRig.mode==='bubble'&&Bubble.fires&&Bubble.fires.length){
+    const now=performance.now();
+    if(now-AudioSys.lastCrackle>90+Math.random()*260){
+      AudioSys.lastCrackle=now;
+      sfx('crackle');
+    }
+  }
+}
+function sfx(kind){
+  if(!AudioSys.ctx||!AudioSys.on||AudioSys.ctx.state!=='running') return;
+  const ctx=AudioSys.ctx, t=ctx.currentTime;
+  const out=ctx.createGain(); out.connect(AudioSys.master);
+  const tone=(freq,type,gain,att,dec,when)=>{
+    const o=ctx.createOscillator(); o.type=type||'sine'; o.frequency.value=freq;
+    const g=ctx.createGain(); g.gain.setValueAtTime(0,t+(when||0));
+    g.gain.linearRampToValueAtTime(gain,t+(when||0)+(att||0.005));
+    g.gain.exponentialRampToValueAtTime(0.0001,t+(when||0)+(att||0.005)+dec);
+    o.connect(g); g.connect(out);
+    o.start(t+(when||0)); o.stop(t+(when||0)+att+dec+0.1);
+  };
+  const noise=(gain,dur,f0,f1,type)=>{
+    const src=ctx.createBufferSource(); src.buffer=AudioSys.noiseBuf;
+    const flt=ctx.createBiquadFilter(); flt.type=type||'bandpass'; flt.Q.value=1.1;
+    flt.frequency.setValueAtTime(f0,t);
+    flt.frequency.exponentialRampToValueAtTime(Math.max(40,f1),t+dur);
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(gain,t+dur*0.25);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    src.connect(flt); flt.connect(g); g.connect(out);
+    src.start(t); src.stop(t+dur+0.1);
+  };
+  switch(kind){
+    case 'click': tone(720,'triangle',0.045,0.003,0.05); break;
+    case 'chime': tone(1318,'sine',0.035,0.004,0.7); tone(1976,'sine',0.02,0.004,0.5,0.02); break;
+    case 'bell': {
+      const f=196+Math.random()*60;
+      tone(f,'sine',0.11,0.004,2.6);
+      tone(f*2.0,'sine',0.07,0.004,1.9);
+      tone(f*2.94,'sine',0.045,0.004,1.3);
+      tone(f*4.4,'sine',0.02,0.004,0.8);
+      break; }
+    case 'drone': {
+      tone(65.4,'sine',0.07,2.2,5.5);
+      tone(65.9,'sine',0.05,2.6,5.0);
+      tone(98,'sine',0.03,3.0,4.5);
+      break; }
+    case 'whoosh': noise(0.16,0.9,240,1400); break;
+    case 'crackle': noise(0.02+Math.random()*0.02,0.05+Math.random()*0.06,1800+Math.random()*1600,900,'highpass'); break;
+    case 'ping': tone(880,'sine',0.04,0.003,0.35); break;
+  }
+}
+function toggleAudio(){
+  AudioSys.on=!AudioSys.on;
+  const b=document.getElementById('btnAudio');
+  if(b) b.classList.toggle('on',AudioSys.on);
+  if(AudioSys.on){ audioInit(); }
+}
+/* ============================================================
    Section: main. Boot, loop, title.
    ============================================================ */
 function getSeed(){
@@ -4597,6 +4861,7 @@ function boot(){
     emitEvent('era',5,null,{era:World.eraName});
     emitEvent('open',5,`Here begins the record of ${World.name}, reconstructed from scripture, inscription, ruin, and the residue of borrowed doctrine. In the beginning each people kept the faith of its own valley, and the valleys had not yet spoken to one another.`,{filter:'all'});
     document.getElementById('loading').style.display='none';
+    beginIntro();
     requestAnimationFrame(frame);
     }catch(err){
       document.getElementById('loadLine').textContent=
@@ -4604,6 +4869,25 @@ function boot(){
       console.error(err);
     }
   },500);
+}
+/* ---------- the opening: the world resolves, the title is set down ---------- */
+let introActive=false, introEndsAt=0;
+function beginIntro(){
+  introActive=true;
+  document.body.classList.add('intro');
+  document.getElementById('introTitle').textContent='The Creeds of '+World.name;
+  document.getElementById('introSub').textContent=fmtYear(World.year)+' · '+World.eraName;
+  CameraRig.dist=PLANET_R*5.6; CameraRig.tDist=PLANET_R*2.4;
+  CameraRig.manualUntil=performance.now()/1000+9.5;
+  introEndsAt=performance.now()/1000+8.5;
+  const skip=()=>{ endIntro(); removeEventListener('pointerdown',skip); removeEventListener('keydown',skip); };
+  setTimeout(()=>{ addEventListener('pointerdown',skip); addEventListener('keydown',skip); },700);
+}
+function endIntro(){
+  if(!introActive) return;
+  introActive=false;
+  document.body.classList.remove('intro');
+  CameraRig.manualUntil=0;
 }
 function frame(t){
   requestAnimationFrame(frame);
@@ -4614,6 +4898,10 @@ function frame(t){
   // sim
   simAdvance(rawDt);
   // camera & director
+  if(introActive){
+    CameraRig.tLon+=dt*2.2;   // the world turns beneath the title
+    if(now>introEndsAt) endIntro();
+  }
   directorTick(now,dt);
   updateCamera(dt);
   // world visuals
@@ -4625,9 +4913,10 @@ function frame(t){
     // the territory tint yields to the terrain as you descend
     R3.ovMesh.material.opacity=0.42*clamp01((camAltitude()-PLANET_R*0.12)/(PLANET_R*0.25));
   } else { R3.dayPhase=(R3.dayPhase+dt*dayRate())%1; updateBubble(dt); }
-  // render with crossfade dip
-  const fade=CameraRig.fade;
-  R3.renderer.domElement.style.filter=fade>0?`brightness(${1-fade*0.95})`:'';
+  // render through the cloud veil
+  document.getElementById('whiteout').style.opacity=CameraRig.fade;
+  if(isGlobe) updatePings(dt);
+  audioAmbient();
   R3.renderer.render(isGlobe?R3.scene:Bubble.scene,R3.camera);
   drawLabels(camAltitude());
   if(now-lastHudAt>0.5){ lastHudAt=now; updateHUD(); }
