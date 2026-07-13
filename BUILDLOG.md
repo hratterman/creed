@@ -214,3 +214,20 @@ segment count. Settlements gained three axes of real difference:
   haystacks in the fields.
 Verified: deep run, interaction sweep, and determinism all clean after the
 worldgen change.
+
+## The carpentry pass
+Critique: a house was still a triangle on a rectangle. Houses are now built
+things, assembled by a house factory: three archetypes per settlement, each
+merged into five material slots (plinth stone, wall, timber frame, dark
+leaves and panes, roof) and instanced per slot. The temperate and cold
+archetypes are a cottage, a jettied town house whose upper story oversails
+the street on visible joist ends, and a longhouse with a lean-to annex and a
+woodpile; all carry corner posts, wall plates, diagonal braces, framed
+windows with shutters, plank doors under lintels, stone chimneys with caps,
+and shingle-course strips with ridge caps and fascia boards on the roofs.
+The dryland archetypes are pueblo work: stacked flat-roofed adobe with
+parapets, protruding vigas, and ladders to the upper floors. Temples share
+the roof dressing (courses, ridge caps, fascia) on every gabled sanctuary.
+Capitals favor town houses; villages favor cottages and longhouses.
+Verified: zero errors across interaction sweep, deep run, and rite
+lifecycles with the new geometry.

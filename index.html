@@ -3034,6 +3034,57 @@ function crenelWall(len,h){
   }
   return mergeGeos(parts);
 }
+// a box placed: the workhorse of the framing carpenter
+function boxAt(list,w,h,d,x,y,z,ry,rz){
+  const g=new THREE.BoxGeometry(w,h,d);
+  if(rz) g.rotateZ(rz);
+  if(ry) g.rotateY(ry);
+  g.translate(x,y,z);
+  list.push(g);
+  return g;
+}
+// course strips, ridge cap, and fascia boards laid over a gable roof, so a
+// roof reads as shingled work rather than a smooth triangle
+function roofDressing(list,w,p,d,over,rows){
+  const W=w/2+over, th=Math.atan2(p,W);
+  const n=rows||4;
+  for(let side=-1;side<=1;side+=2){
+    for(let i=1;i<=n;i++){
+      const t=i/(n+1);
+      boxAt(list,0.09,0.07,d+over*1.7, side*W*(1-t), -0.06+p*t+0.05, 0, 0, side*-th);
+    }
+    boxAt(list,0.08,0.2,d+over*1.9, side*W*0.98, 0, 0, 0, side*-th*0.3); // fascia
+  }
+  boxAt(list,0.24,0.12,d+over*1.4, 0, p+0.04, 0);                         // ridge cap
+}
+// a framed window with shutters and a dark light
+function windowUnit(tl,dk,x,y,z,ry,w,h){
+  const W=w||0.44,H=h||0.56;
+  const parts=[];
+  boxAt(parts,W+0.12,0.06,0.1,0,H/2,0); boxAt(parts,W+0.12,0.06,0.1,0,-H/2,0);
+  boxAt(parts,0.06,H+0.06,0.1,-W/2,0,0); boxAt(parts,0.06,H+0.06,0.1,W/2,0,0);
+  boxAt(parts,W*0.55,H*0.95,0.05,-W*0.8,0,0.02,0,0);   // shutters
+  boxAt(parts,W*0.55,H*0.95,0.05, W*0.8,0,0.02,0,0);
+  for(const g of parts){ if(ry)g.rotateY(ry); g.translate(x,y,z); tl.push(g); }
+  const pane=new THREE.BoxGeometry(W,H,0.05);
+  if(ry)pane.rotateY(ry); pane.translate(x,y,z); dk.push(pane);
+}
+// a plank door under a lintel
+function doorUnit(tl,dk,x,y,z,ry){
+  const parts=[];
+  boxAt(parts,0.86,0.09,0.12,0,1.06,0);
+  boxAt(parts,0.08,1.1,0.1,-0.42,0.55,0); boxAt(parts,0.08,1.1,0.1,0.42,0.55,0);
+  for(const g of parts){ if(ry)g.rotateY(ry); g.translate(x,y,z); tl.push(g); }
+  const leaf=new THREE.BoxGeometry(0.7,1.02,0.07);
+  if(ry)leaf.rotateY(ry); leaf.translate(x,y+0.51,z); dk.push(leaf);
+}
+// a ladder against an adobe wall
+function ladderGeo(list,x,y,z,h,ry){
+  const parts=[];
+  boxAt(parts,0.06,h,0.06,-0.2,h/2,0,0,0.06); boxAt(parts,0.06,h,0.06,0.2,h/2,0,0,0.06);
+  for(let i=1;i<h/0.38;i++) boxAt(parts,0.44,0.05,0.05,0,i*0.38,0);
+  for(const g of parts){ if(ry)g.rotateY(ry); g.translate(x,y,z); list.push(g); }
+}
 // an arched portal: raised surround with a dark recess
 function portalGeo(w,h){
   const s=new THREE.Shape();
@@ -3164,6 +3215,129 @@ function cultureStyle(cu,biome){
     wall:[0.07,0.28+S()*0.08,0.4+S()*0.06],
     roofKind:S()<0.5?'steep':'gable', roof:[0.1+S()*0.03,0.35,0.5+S()*0.08], aspect:1.1+S()*0.15, dry:false };
 }
+/* The house factory. Three archetypes per settlement, each assembled from
+   five material slots (plinth stone, wall, timber frame, dark leaves and
+   panes, roof), so a house is a built thing: jetties, braces, shutters,
+   shingle courses, chimneys; or stacked adobe with vigas and a ladder. */
+function makeHouseSet(style,S){
+  const steep=style.roofKind==='steep';
+  const arch=[];
+  const build=(foot,fn)=>{
+    const sl={stone:[],wall:[],timber:[],dark:[],roof:[]};
+    fn(sl);
+    const geos={};
+    for(const k in sl) if(sl[k].length) geos[k]=mergeGeos(sl[k]);
+    arch.push({foot,geos});
+  };
+  if(style.dry){
+    // pueblo work: stacked flat-roofed adobe, protruding vigas, ladders
+    const vigas=(sl,w,y,z,n)=>{ for(let i=0;i<n;i++)
+      boxAt(sl.timber,0.12,0.12,0.55,-w/2+ (i+0.5)*(w/n), y, z); };
+    build([3.2,2.8],sl=>{
+      sl.wall.push(bevelBox(3.2,2.05,2.8,0.14));
+      boxAt(sl.wall,3.3,0.28,0.18,0,2.15,1.36); boxAt(sl.wall,3.3,0.28,0.18,0,2.15,-1.36);
+      boxAt(sl.wall,0.18,0.28,2.8,1.56,2.15,0); boxAt(sl.wall,0.18,0.28,2.8,-1.56,2.15,0);
+      sl.roof.push(bevelBox(2.9,0.1,2.5,0.04)); sl.roof[sl.roof.length-1].translate(0,2.02,0);
+      vigas(sl,3.0,1.85,1.5,6);
+      doorUnit(sl.timber,sl.dark,0.7,0,1.42,0);
+      windowUnit(sl.timber,sl.dark,-0.85,1.3,1.42,0,0.3,0.36);
+      ladderGeo(sl.timber,-1.3,0,1.5,2.5,0);
+    });
+    build([3.6,3.1],sl=>{
+      sl.wall.push(bevelBox(3.6,1.85,3.1,0.14));
+      const up=bevelBox(2.1,1.5,1.9,0.12); up.translate(-0.6,1.85,-0.45); sl.wall.push(up);
+      sl.roof.push(bevelBox(3.3,0.1,2.8,0.04)); sl.roof[sl.roof.length-1].translate(0,1.82,0);
+      const r2=bevelBox(1.8,0.1,1.6,0.04); r2.translate(-0.6,3.3,-0.45); sl.roof.push(r2);
+      vigas(sl,3.4,1.65,1.62,7); vigas(sl,1.9,3.12,0.55,4);
+      doorUnit(sl.timber,sl.dark,0.9,0,1.58,0);
+      windowUnit(sl.timber,sl.dark,-0.9,1.15,1.58,0,0.3,0.36);
+      ladderGeo(sl.timber,0.6,1.85,0.4,1.7,0);
+    });
+    build([4.8,2.6],sl=>{
+      sl.wall.push(bevelBox(4.8,1.9,2.6,0.14));
+      sl.roof.push(bevelBox(4.5,0.1,2.3,0.04)); sl.roof[sl.roof.length-1].translate(0,1.87,0);
+      vigas(sl,4.6,1.7,1.32,9);
+      for(const wx of [-1.7,1.7]) boxAt(sl.stone,0.24,0.85,0.24,wx,0.42,2.0);
+      sl.roof.push(new THREE.BoxGeometry(2.6,0.08,1.4)); sl.roof[sl.roof.length-1].translate(0,1.75,1.9);
+      doorUnit(sl.timber,sl.dark,0,0,1.32,0);
+      windowUnit(sl.timber,sl.dark,1.6,1.2,1.32,0,0.3,0.36);
+      windowUnit(sl.timber,sl.dark,-1.6,1.2,1.32,0,0.3,0.36);
+    });
+    return arch;
+  }
+  const frame=(sl,w,h,d,y0)=>{
+    for(const sx of [-1,1]) for(const sz of [-1,1])
+      boxAt(sl.timber,0.15,h,0.15,sx*(w/2-0.06),y0+h/2,sz*(d/2-0.06));
+    boxAt(sl.timber,w+0.04,0.13,0.13,0,y0+h-0.06,d/2-0.05);
+    boxAt(sl.timber,w+0.04,0.13,0.13,0,y0+h-0.06,-d/2+0.05);
+  };
+  const chimney=(sl,x,z,hTop)=>{
+    boxAt(sl.stone,0.46,hTop,0.46,x,hTop/2,z);
+    boxAt(sl.stone,0.6,0.14,0.6,x,hTop+0.06,z);
+  };
+  // the cottage
+  build([3.4,3.0],sl=>{
+    sl.stone.push(bevelBox(3.55,0.32,3.15,0.08));
+    const wallB=bevelBox(3.4,2.05,3.0,0.07); wallB.translate(0,0.26,0); sl.wall.push(wallB);
+    frame(sl,3.4,2.05,3.0,0.26);
+    boxAt(sl.timber,1.15,0.13,0.13,-0.85,1.45,1.51,0,0.55);   // brace
+    boxAt(sl.timber,1.15,0.13,0.13,0.85,1.45,1.51,0,-0.55);
+    const p=steep?2.0:1.35;
+    const roof=gableRoof(3.4,p,3.0,0.45); roof.translate(0,2.36,0); sl.roof.push(roof);
+    const dress=[]; roofDressing(dress,3.4,p,3.0,0.45,4);
+    for(const g of dress){ g.translate(0,2.36,0); sl.timber.push(g); }
+    doorUnit(sl.timber,sl.dark,-0.7,0.26,1.52,0);
+    windowUnit(sl.timber,sl.dark,0.75,1.35,1.52,0);
+    windowUnit(sl.timber,sl.dark,0,1.35,-1.52,Math.PI);
+    chimney(sl,1.15,-0.7,2.4+p*0.8);
+  });
+  // the jettied town house: upper story oversails the street
+  build([3.3,2.9],sl=>{
+    sl.stone.push(bevelBox(3.45,0.32,3.0,0.08));
+    const g1=bevelBox(3.0,1.8,2.6,0.07); g1.translate(0,0.26,0); sl.wall.push(g1);
+    const g2=bevelBox(3.5,1.55,3.0,0.07); g2.translate(0,2.06,0); sl.wall.push(g2);
+    frame(sl,3.0,1.8,2.6,0.26);
+    frame(sl,3.5,1.55,3.0,2.06);
+    for(let i=0;i<5;i++) boxAt(sl.timber,0.14,0.14,0.5,-1.4+i*0.7,1.98,1.35); // joist ends
+    boxAt(sl.timber,1.0,0.12,0.12,-0.9,2.9,1.52,0,0.5);
+    boxAt(sl.timber,1.0,0.12,0.12,0.9,2.9,1.52,0,-0.5);
+    const p=steep?1.9:1.3;
+    const roof=gableRoof(3.5,p,3.0,0.4); roof.translate(0,3.66,0); sl.roof.push(roof);
+    const dress=[]; roofDressing(dress,3.5,p,3.0,0.4,4);
+    for(const g of dress){ g.translate(0,3.66,0); sl.timber.push(g); }
+    doorUnit(sl.timber,sl.dark,0.6,0.26,1.32,0);
+    windowUnit(sl.timber,sl.dark,-0.75,2.75,1.52,0);
+    windowUnit(sl.timber,sl.dark,0.75,2.75,1.52,0);
+    windowUnit(sl.timber,sl.dark,0,1.2,-1.32,Math.PI);
+    chimney(sl,-1.2,-0.6,3.7+p*0.7);
+  });
+  // the longhouse with its lean-to
+  build([5.6,2.7],sl=>{
+    sl.stone.push(bevelBox(5.0,0.32,2.85,0.08));
+    const wallB=bevelBox(4.8,1.8,2.7,0.07); wallB.translate(0,0.26,0); sl.wall.push(wallB);
+    frame(sl,4.8,1.8,2.7,0.26);
+    boxAt(sl.timber,0.15,1.8,0.15,0,1.16,1.29);
+    const p=steep?1.7:1.2;
+    const roof=gableRoof(4.8,p,2.7,0.5); roof.translate(0,2.11,0); sl.roof.push(roof);
+    const dress=[]; roofDressing(dress,4.8,p,2.7,0.5,4);
+    for(const g of dress){ g.translate(0,2.11,0); sl.timber.push(g); }
+    // lean-to annex and the woodpile
+    const ax=2.4+0.55;
+    const an=bevelBox(1.5,1.15,1.9,0.07); an.translate(ax,0.1,0); sl.wall.push(an);
+    boxAt(sl.roof,1.9,0.1,2.2,ax,1.36,0,0,-0.22);
+    for(let i=0;i<5;i++){
+      const log=new THREE.CylinderGeometry(0.11,0.11,1.0,7);
+      log.rotateX(Math.PI/2);
+      log.translate(-2.9,0.38+(i%3)*0.2,-0.5+Math.floor(i/3)*0.24);
+      sl.timber.push(log);
+    }
+    doorUnit(sl.timber,sl.dark,-0.4,0.26,1.37,0);
+    windowUnit(sl.timber,sl.dark,1.3,1.25,1.37,0);
+    windowUnit(sl.timber,sl.dark,-1.7,1.25,1.37,0);
+    chimney(sl,1.6,-0.5,2.2+p*0.8);
+  });
+  return arch;
+}
 function enterBubble(setId){
   if(Bubble.setId===setId&&Bubble.built) return;
   disposeBubbleContent();
@@ -3216,24 +3390,35 @@ function enterBubble(setId){
   const minor=Object.entries(s.pool).filter(([k,v])=>+k!==dom&&v>0.25&&World.faiths[k]&&!World.faiths[k].deadYear)[0];
   if(minor) buildTemple(World.faiths[minor[0]],v3(26,0,10),B,0.55);
   if(s.ruins.length&&f) buildRuin(v3(-30,0,18),B);
-  // ---- houses: culture style, settlement layout, lit windows ----
+  // ---- houses: real carpentry, three archetypes, five material slots ----
   const style=cultureStyle(s.culture,c.biome);
   const n=clamp(Math.round(s.pop/60),14,110);
-  const wallG=bevelBox(1,1,1,0.06);
-  const roofG=style.roofKind==='steep'?gableRoof(1,0.85,1,0.14)
-    :style.roofKind==='flat'?bevelBox(1.06,0.16,1.06,0.04)
-    :gableRoof(1,0.5,1,0.16);
-  const roofPeak=style.roofKind==='steep'?0.85:style.roofKind==='flat'?0:0.5;
-  const winG=new THREE.PlaneGeometry(0.16,0.22); winG.translate(0,0,0.005);
-  const doorG=new THREE.PlaneGeometry(0.22,0.42); doorG.translate(0,0,0.006);
-  const ridgeG=bevelBox(0.1,0.06,1.02,0.02);
+  const houseSet=makeHouseSet(style,B);
   const wallHue=new THREE.Color().setHSL(style.wall[0]+(B()-0.5)*0.02,style.wall[1],style.wall[2]);
-  Bubble.houses=new THREE.InstancedMesh(wallG,new THREE.MeshLambertMaterial({color:0xffffff}),n);
-  Bubble.roofs=new THREE.InstancedMesh(roofG,new THREE.MeshLambertMaterial({color:0xffffff}),n);
+  const timberMat=new THREE.MeshLambertMaterial({color:style.dry?0x8a6a44:0x4a3524});
+  const slotMats={
+    stone:new THREE.MeshLambertMaterial({color:0x8a8478}),
+    wall:new THREE.MeshLambertMaterial({color:0xffffff}),
+    timber:timberMat,
+    dark:new THREE.MeshLambertMaterial({color:0x241a12}),
+    roof:new THREE.MeshLambertMaterial({color:0xffffff})
+  };
+  Bubble.houseSlots=[];
+  const houseCount=[0,0,0];
+  for(let k=0;k<houseSet.length;k++){
+    const slots={};
+    for(const key in houseSet[k].geos){
+      const im=new THREE.InstancedMesh(houseSet[k].geos[key],slotMats[key],n);
+      im.castShadow=im.receiveShadow=true;
+      im.count=0;
+      Bubble.group.add(im);
+      slots[key]=im;
+    }
+    Bubble.houseSlots.push(slots);
+  }
+  const winG=new THREE.PlaneGeometry(0.4,0.5); winG.translate(0,0,0.01);
   Bubble.winMat=new THREE.MeshBasicMaterial({color:0xffc868,transparent:true,opacity:0});
   Bubble.windows=new THREE.InstancedMesh(winG,Bubble.winMat,n*2);
-  Bubble.doors=new THREE.InstancedMesh(doorG,new THREE.MeshLambertMaterial({color:0x3a2a1a}),n);
-  Bubble.ridges=new THREE.InstancedMesh(ridgeG,new THREE.MeshLambertMaterial({color:0x5a3524}),n);
   const m=new THREE.Matrix4(),q=new THREE.Quaternion(),sc=new THREE.Vector3(),cc2=new THREE.Color();
   let wi=0;
   // rejection-sampled placement against a per-settlement plan: some towns
@@ -3283,49 +3468,49 @@ function enterBubble(setId){
     }
   }
   for(let i=0;i<n;i++){
-    const w=(2+B()*2.4)*(2-style.aspect)*0.9, h=(1.8+B()*1.4)*style.aspect, d2=(2+B()*2.4)*(2-style.aspect)*0.9;
-    const rad=Math.max(w,d2)*0.72;
+    // capitals lean to town houses, villages to cottages and longhouses
+    const kk=s.kind==='capital'?rpick(B,[1,1,0,2]):s.kind==='town'?rint(B,0,2):rpick(B,[0,0,2,2,1]);
+    const at=houseSet[kk];
+    const u=0.82+B()*0.34;
+    const rad=Math.max(at.foot[0],at.foot[1])*u*0.62;
     let x=0,z=0,rot=0,ok=false;
     for(let t=0;t<24&&!ok;t++){
-      const cnd=candidate(w,d2);
+      const cnd=candidate(at.foot[0]*u,at.foot[1]*u);
       x=cnd.x; z=cnd.z; rot=cnd.rot;
       ok=clearOf(x,z,rad);
     }
-    if(!ok){ m.makeScale(0,0,0);
-      Bubble.houses.setMatrixAt(i,m); Bubble.roofs.setMatrixAt(i,m);
-      Bubble.doors.setMatrixAt(i,m); Bubble.ridges.setMatrixAt(i,m);
-      continue; }
+    if(!ok) continue;
     placed.push({x,z,rad});
     const y=groundY(x,z,setId);
     q.setFromAxisAngle(v3(0,1,0),rot);
-    sc.set(w,h,d2); m.compose(v3(x,y,z),q,sc);
-    Bubble.houses.setMatrixAt(i,m);
-    cc2.copy(wallHue).offsetHSL((B()-0.5)*0.03,(B()-0.5)*0.1,(B()-0.5)*0.12);
-    Bubble.houses.setColorAt(i,cc2);
-    if(style.roofKind==='flat'){ sc.set(w,1,d2); m.compose(v3(x,y+h+0.02,z),q,sc); }
-    else { sc.set(w,h*0.95,d2); m.compose(v3(x,y+h+0.05,z),q,sc); }
-    Bubble.roofs.setMatrixAt(i,m);
-    cc2.setHSL(style.roof[0]+(B()-0.5)*0.04,style.roof[1],style.roof[2]+(B()-0.5)*0.08);
-    Bubble.roofs.setColorAt(i,cc2);
-    // door, windows, and a ridge beam where the roof has a ridge
-    const hm=new THREE.Matrix4().compose(v3(x,0,z),q,new THREE.Vector3(1,1,1));
-    const nw=1+(B()<0.5?1:0);
-    for(let k=0;k<nw;k++){
-      const rel=new THREE.Matrix4().makeTranslation((k===0?-0.24:0.24)*w*0.8,y+h*0.6,d2*0.51);
-      m.copy(hm).multiply(rel);
-      Bubble.windows.setMatrixAt(wi++,m);
+    sc.set(u,u*(0.94+B()*0.16),u);
+    m.compose(v3(x,y,z),q,sc);
+    const idx=houseCount[kk]++;
+    const slots=Bubble.houseSlots[kk];
+    for(const key in slots){
+      slots[key].setMatrixAt(idx,m);
+      slots[key].count=idx+1;
     }
-    m.copy(hm).multiply(new THREE.Matrix4().makeTranslation(0.02*w,y,d2*0.51));
-    Bubble.doors.setMatrixAt(i,m);
-    if(roofPeak>0){
-      m.copy(hm).multiply(new THREE.Matrix4().compose(v3(0,y+h+0.02+h*0.95*roofPeak,0),new THREE.Quaternion(),new THREE.Vector3(1,1,d2*0.82)));
-    } else m.makeScale(0,0,0);
-    Bubble.ridges.setMatrixAt(i,m);
+    if(slots.wall){
+      cc2.copy(wallHue).offsetHSL((B()-0.5)*0.03,(B()-0.5)*0.1,(B()-0.5)*0.12);
+      slots.wall.setColorAt(idx,cc2);
+    }
+    if(slots.roof){
+      cc2.setHSL(style.roof[0]+(B()-0.5)*0.04,style.roof[1],style.roof[2]+(B()-0.5)*0.08);
+      slots.roof.setColorAt(idx,cc2);
+    }
+    // a warm window for the night, set into the front face
+    const hm=new THREE.Matrix4().compose(v3(x,y,z),q,new THREE.Vector3(u,u,u));
+    const rel=new THREE.Matrix4().makeTranslation((B()<0.5?-0.75:0.75),style.dry?1.3:1.35,at.foot[1]/2+0.06);
+    m.copy(hm).multiply(rel);
+    Bubble.windows.setMatrixAt(wi++,m);
   }
   for(;wi<n*2;wi++){ m.makeScale(0,0,0); Bubble.windows.setMatrixAt(wi,m); }
-  Bubble.houses.castShadow=Bubble.houses.receiveShadow=true;
-  Bubble.roofs.castShadow=Bubble.roofs.receiveShadow=true;
-  Bubble.group.add(Bubble.houses,Bubble.roofs,Bubble.windows,Bubble.doors,Bubble.ridges);
+  for(const slots of Bubble.houseSlots) for(const key in slots){
+    slots[key].instanceMatrix.needsUpdate=true;
+    if(slots[key].instanceColor) slots[key].instanceColor.needsUpdate=true;
+  }
+  Bubble.group.add(Bubble.windows);
   // ---- furniture of rank: stalls and banners for capitals, a well for
   // towns, haystacks for villages ----
   buildFurniture(s,f,B,placed,setId);
@@ -3510,6 +3695,7 @@ function disposeBubbleContent(){
   Bubble.banner=null; Bubble.bannerBase=null; Bubble.birds=null; Bubble.smokes=null;
   Bubble.bonfire=null; Bubble.bonfireFlame=null; Bubble.winMat=null;
   Bubble.fires=null; Bubble.pyreFire=null; Bubble.bonfireObj=null; Bubble.crowdSkin=null;
+  Bubble.houseSlots=null;
   Bubble.built=false;
 }
 function sunHNow(){ return Math.sin(R3.dayPhase*TAU); }
@@ -3524,6 +3710,12 @@ function buildTemple(f,at,B,scaleMul){
   const accent=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.36,0.42)});
   const gold=new THREE.MeshLambertMaterial({color:0xd8b23a,emissive:0x40320a});
   const add=(geo,mat,x,y,z,ry)=>{ const mm=new THREE.Mesh(geo,mat); mm.position.set(x,y,z); if(ry)mm.rotation.y=ry; grp.add(mm); return mm; };
+  // a gable roof with its shingle courses and ridge cap
+  const roofed=(w,p,d,over,x,y,z)=>{
+    add(gableRoof(w,p,d,over),accent,x,y,z);
+    const L=[]; roofDressing(L,w,p,d,over,4);
+    add(mergeGeos(L),stoneDark,x,y,z);
+  };
   const colonnade=(nCol,r,h,cy)=>{ const cg=columnGeo(0.34,h);
     for(let i=0;i<nCol;i++){ const ang=i/nCol*TAU; add(cg,stone,Math.cos(ang)*r,cy||0,Math.sin(ang)*r); } };
   // façade dressing: cornice, pilaster strips, and an arched portal
@@ -3594,7 +3786,7 @@ function buildTemple(f,at,B,scaleMul){
       const nh=5.2*a.v1, tw=9*a.v2;
       add(bevelBox(6.4*k,nh,12.5*k,0.16),stone,0,0,0);
       facade(6.4*k,nh,12.5*k);
-      const rf=add(gableRoof(6.4*k,2.6,12.5*k,0.5),accent,0,nh+0.3,0);
+      roofed(6.4*k,2.6,12.5*k,0.5,0,nh+0.3,0);
       for(const sx of [-1,1]) for(let i=0;i<3;i++){ // buttresses, shouldered against the nave
         const bt=add(bevelBox(0.7,nh*0.75,1.1,0.06),stoneDark,sx*(3.2*k+0.18),0,-3.5+i*3.5);
         bt.rotation.z=sx*-0.1;
@@ -3618,7 +3810,7 @@ function buildTemple(f,at,B,scaleMul){
       const hh=3.7*a.v1;
       add(bevelBox(10.5*k,hh,7.4*k,0.15),stone,0,0,0);
       facade(10.5*k,hh,7.4*k);
-      add(gableRoof(10.5*k,2.1*a.v2,7.4*k,0.55),accent,0,hh+0.2,0);
+      roofed(10.5*k,2.1*a.v2,7.4*k,0.55,0,hh+0.2,0);
       const cg=columnGeo(0.3,2.9*a.v2);
       for(let i=0;i<4;i++) add(cg,stone,-3.6*k+i*2.4*k,0,3.9*k);
       add(bevelBox(10*k,0.5,1.1,0.08),stone,0,2.9*a.v2,3.9*k);
@@ -3628,9 +3820,9 @@ function buildTemple(f,at,B,scaleMul){
       const b1=2.4*a.v1;
       add(bevelBox(4.6*k,b1,4.6*k,0.12),stone,0,0,0);
       facade(4.6*k,b1,4.6*k);
-      add(gableRoof(5.4*k,1.3,5.4*k,0.4),accent,0,b1+0.1,0);
+      roofed(5.4*k,1.3,5.4*k,0.4,0,b1+0.1,0);
       add(bevelBox(2.6*k,1.5,2.6*k,0.1),stone,0,b1+1.3,0);
-      add(gableRoof(3.4*k,1.1,3.4*k,0.35),accent,0,b1+2.8,0);
+      roofed(3.4*k,1.1,3.4*k,0.35,0,b1+2.8,0);
       add(finialGeo(0.22),gold,0,b1+3.9,0);
       add(stepsGeo(2.6),stoneDark,0,0,2.6*k+0.6);
       break; }
