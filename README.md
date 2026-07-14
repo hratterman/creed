@@ -10,11 +10,26 @@ blend, and die across deep time. Everything that happens is written into a
 scrolling illuminated record, drawn onto a braiding tree of faiths, and framed
 by a cinematic auto-director that flies the camera to the story.
 
-## Running it
+## Installing and playing (macOS and Windows)
 
-Open `index.html` in a browser. That is all: no build step, no server, no
-assets. The only dependency is Three.js r128, loaded from cdnjs. The same file
-runs as a static page (Netlify or any host) or as a Claude artifact.
+There is nothing to install. Pick whichever of these suits you:
+
+1. **Play in the browser.** Once GitHub Pages is enabled for this repository
+   (Settings → Pages → Source: GitHub Actions, a one-time click; the deploy
+   workflow is already included), the game is live at
+   `https://hratterman.github.io/creed/` in any modern browser on any OS.
+2. **Download one file and double-click it.** Grab
+   [`CREED-offline.html`](CREED-offline.html) (use the Download raw file
+   button), then open it by double-clicking. It contains everything,
+   including the 3D engine, and runs entirely offline. Works identically on
+   macOS (Safari, Chrome, Firefox) and Windows (Edge, Chrome, Firefox).
+3. **Clone and open.** `git clone` the repository and open `index.html`.
+   This variant loads Three.js r128 from cdnjs, so it wants an internet
+   connection on first load.
+
+No build step, no server, no dependencies to install in every case. The only
+difference between the two HTML files is that the offline one inlines the
+Three.js engine; `index.html` is the canonical CDN build.
 
 - The URL hash (`#s=1234567`) is the seed and the only persistence. Copy the
   share link to hand someone your world.
