@@ -251,6 +251,7 @@ body.intro .hideable{opacity:0;pointer-events:none;}
   <div class="helpCard">
     <div class="ht">How to watch a world</div>
     <div class="hrow"><b>Scroll</b> descend from orbit to a temple square, and back out</div>
+    <div class="hrow"><b>Double-click</b> a town to dive straight down into it; the gold ring marks where you will land</div>
     <div class="hrow"><b>Drag</b> turn the world, or orbit the square</div>
     <div class="hrow"><b>Click</b> inspect a faith, settlement, temple, believer, or pilgrim stream</div>
     <div class="hrow"><b>Space</b> pause · <b>1 to 5</b> the two clocks, human to deep time</div>
@@ -260,7 +261,7 @@ body.intro .hideable{opacity:0;pointer-events:none;}
     <div class="hrow" style="margin-top:8px;opacity:0.7">Click anywhere to close.</div>
   </div>
 </div>
-<div id="hint" class="hideable">scroll to descend from orbit to the temple square · click to inspect · T for the tree of faiths · C to watch</div>
+<div id="hint" class="hideable">scroll to descend · double-click a town to visit it · click to inspect · T for the tree of faiths · C to watch</div>
 <div id="loading">
   <div class="title">CREED</div>
   <div class="sub">a living history of faith</div>
@@ -2448,6 +2449,28 @@ function initRenderer(){
   lb.width=innerWidth; lb.height=innerHeight;
 }
 
+/* biomes wash into one another: color is a distance-weighted blend of
+   the nearby cells, so no triangle edge carries a hard color change */
+function blendBiomeCol(p){
+  if(!cellGrid) buildCellGrid();
+  const r=cellGrid.res;
+  const ix=Math.floor((p.x+1)/2*r), iy=Math.floor((p.y+1)/2*r), iz=Math.floor((p.z+1)/2*r);
+  let cr=0,cg=0,cb=0,ws=0;
+  for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)for(let dz=-1;dz<=1;dz++){
+    const bin=cellGrid.bins[(ix+dx)+','+(iy+dy)+','+(iz+dz)];
+    if(!bin) continue;
+    for(const c of bin){
+      if(c.elev<=0) continue;
+      const d=c.p.dot(p);
+      if(d<0.994) continue;
+      const w=Math.exp((d-1)*1400);
+      const bc=BIOME_COL[c.biome];
+      cr+=bc[0]*w; cg+=bc[1]*w; cb+=bc[2]*w; ws+=w;
+    }
+  }
+  if(!ws) return BIOME_COL[BIOME.GRASS];
+  return [cr/ws,cg/ws,cb/ws];
+}
 function buildGlobe(){
   const g=new THREE.IcosahedronGeometry(PLANET_R,7);
   const pos=g.attributes.position;
@@ -2461,7 +2484,7 @@ function buildGlobe(){
     pos.setXYZ(i,tmp.x*(PLANET_R+h*ELEV),tmp.y*(PLANET_R+h*ELEV),tmp.z*(PLANET_R+h*ELEV));
     let col;
     if(e<=0) col=BIOME_COL[c&&c.temp<-8?BIOME.ICE:BIOME.OCEAN];
-    else col=BIOME_COL[c?c.biome:BIOME.GRASS];
+    else col=blendBiomeCol(tmp);
     // painterly variation, brightened for the jewel-toned register
     const v=(0.94+SIMPLEX2(tmp.x*9,tmp.y*9,tmp.z*9)*0.09)*(e<=0?1:1.28);
     colors[i*3]=Math.min(1,col[0]*v); colors[i*3+1]=Math.min(1,col[1]*v); colors[i*3+2]=Math.min(1,col[2]*v);
@@ -2510,6 +2533,9 @@ function buildGlobe(){
   R3.selRing=new THREE.Mesh(ringG,new THREE.MeshBasicMaterial({color:0xd8b23a,transparent:true,
     opacity:0.95,side:THREE.DoubleSide,depthWrite:false}));
   R3.selRing.visible=false; R3.scene.add(R3.selRing);
+  R3.landRing=new THREE.Mesh(ringG,new THREE.MeshBasicMaterial({color:0xffd968,transparent:true,
+    opacity:0.9,side:THREE.DoubleSide,depthWrite:false}));
+  R3.landRing.visible=false; R3.scene.add(R3.landRing);
   R3.pings=[];
   for(let i=0;i<5;i++){
     const p=new THREE.Mesh(ringG,new THREE.MeshBasicMaterial({color:0xf4e0a0,transparent:true,
@@ -2725,6 +2751,61 @@ function buildSky(){
 /* ---------- overlays ---------- */
 let overlayMode='faiths';
 let ovTimer=0, ovTmp=null;
+/* the map knows which cell owns every pixel, computed once; territory then
+   renders as true regions with crisp coasts and borders, not airbrushed blobs */
+let pixCellMap=null;
+function buildPixelCellMap(){
+  const W=1024,H=512,BR=36;
+  pixCellMap=new Uint16Array(W*H);
+  const buckets={};
+  for(const c of World.cells){
+    const k=Math.floor((c.lat+90)/180*BR)*1000+Math.floor((c.lon+180)/360*BR*2);
+    (buckets[k]=buckets[k]||[]).push(c);
+  }
+  for(let y=0;y<H;y++){
+    const lat=90-(y+0.5)/H*180;
+    const cl=Math.max(0.06,Math.cos(lat*Math.PI/180));
+    const by=Math.min(BR-1,Math.floor((lat+90)/180*BR));
+    const wide=Math.abs(lat)>72;
+    for(let x=0;x<W;x++){
+      const lon=(x+0.5)/W*360-180;
+      const bx=Math.floor((lon+180)/360*BR*2);
+      let best=null,bd=1e9;
+      for(let dy=-1;dy<=1;dy++){
+        const yy=by+dy; if(yy<0||yy>=BR) continue;
+        const x0=wide?0:bx-1, x1=wide?BR*2-1:bx+1;
+        for(let dx=x0;dx<=x1;dx++){
+          let xx=wide?dx:dx; if(xx<0)xx+=BR*2; if(xx>=BR*2)xx-=BR*2;
+          const bin=buckets[yy*1000+xx]; if(!bin) continue;
+          for(const c of bin){
+            let dlo=Math.abs(c.lon-lon); if(dlo>180)dlo=360-dlo;
+            const d=(c.lat-lat)*(c.lat-lat)+dlo*dlo*cl*cl;
+            if(d<bd){bd=d;best=c;}
+          }
+        }
+      }
+      if(best&&best.elev>0) pixCellMap[y*W+x]=best.id+1;
+    }
+  }
+}
+function hsl2rgb(h,sa,l){
+  h=((h%360)+360)%360/360;
+  const q=l<0.5?l*(1+sa):l+sa-l*sa, pq=2*l-q;
+  const f=t=>{ t=((t%1)+1)%1;
+    if(t<1/6) return pq+(q-pq)*6*t;
+    if(t<1/2) return q;
+    if(t<2/3) return pq+(q-pq)*(2/3-t)*6;
+    return pq; };
+  return [f(h+1/3)*255,f(h)*255,f(h-1/3)*255];
+}
+function cssToRGBA(col){
+  let m=col.match(/hsla?\(([\d.-]+),\s*([\d.]+)%,\s*([\d.]+)%(?:,\s*([\d.]+))?\)/);
+  if(m){ const [r,g,b]=hsl2rgb(+m[1],+m[2]/100,+m[3]/100); return [r,g,b,(m[4]===undefined?1:+m[4])*255]; }
+  m=col.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/);
+  if(m) return [+m[1],+m[2],+m[3],(m[4]===undefined?1:+m[4])*255];
+  return [255,255,255,128];
+}
+let ovImg=null;
 function refreshOverlay(force){
   const gMain=R3.ovCanvas.getContext('2d');
   // territory fields draw to a scratch canvas, composite through one blur,
@@ -2732,7 +2813,8 @@ function refreshOverlay(force){
   if(!ovTmp){ ovTmp=document.createElement('canvas'); ovTmp.width=1024; ovTmp.height=512; }
   const g=ovTmp.getContext('2d');
   g.clearRect(0,0,1024,512);
-  const cellR=1024/Math.sqrt(NCELLS)*0.6;
+  if(!pixCellMap) buildPixelCellMap();
+  const cellRGBA=new Uint8Array(World.cells.length*4);
   for(const c of World.cells){
     if(c.elev<=0) continue;
     let col=null;
@@ -2775,18 +2857,30 @@ function refreshOverlay(force){
       }
     } else if(overlayMode==='terrain') col=null;
     if(!col) continue;
-    const x=(c.lon+180)/360*1024, y=(90-c.lat)/180*512;
-    g.fillStyle=col;
-    g.beginPath();g.arc(x,y,cellR*1.12,0,TAU);g.fill();
+    const rgba=cssToRGBA(col), o=c.id*4;
+    cellRGBA[o]=rgba[0]; cellRGBA[o+1]=rgba[1]; cellRGBA[o+2]=rgba[2]; cellRGBA[o+3]=rgba[3];
   }
+  if(!ovImg) ovImg=g.createImageData(1024,512);
+  // one packed word per cell, one write per pixel
+  const px32=new Uint32Array(ovImg.data.buffer);
+  const packed=new Uint32Array(World.cells.length);
+  for(let ci=0;ci<World.cells.length;ci++){
+    const o=ci*4;
+    packed[ci]=(cellRGBA[o+3]<<24)|(cellRGBA[o+2]<<16)|(cellRGBA[o+1]<<8)|cellRGBA[o];
+  }
+  for(let i=0;i<pixCellMap.length;i++){
+    const cid=pixCellMap[i];
+    px32[i]=cid?packed[cid-1]:0;
+  }
+  g.putImageData(ovImg,0,0);
   gMain.clearRect(0,0,1024,512);
-  try{ gMain.filter='blur(3px)'; gMain.drawImage(ovTmp,0,0); gMain.filter='none'; }
+  try{ gMain.filter='blur(1px)'; gMain.drawImage(ovTmp,0,0); gMain.filter='none'; }
   catch(e){ gMain.drawImage(ovTmp,0,0); }
   // inked boundaries where dominant faiths meet
   if(overlayMode==='faiths'){
     const dom={};
     for(const st of World.settlements) dom[st.id]=dominantFaith(st);
-    gMain.fillStyle='rgba(24,16,8,0.55)';
+    gMain.fillStyle='rgba(24,16,8,0.35)';
     for(const c of World.cells){
       if(c.elev<=0||c.nearSet<0) continue;
       const fa=dom[c.nearSet];
@@ -3502,22 +3596,33 @@ function enterBubble(setId){
   const dom=dominantFaith(s);
   const f=dom!==null?World.faiths[dom]:null;
   Bubble.faith=f;
-  const plaza=new THREE.Mesh(new THREE.CircleGeometry(16,64),
-    new THREE.MeshLambertMaterial({map:makePavingTexture(B)}));
+  // every town squares itself differently: size by rank, paving by wealth,
+  // and the temple takes its own bearing on the plaza rim
+  const pr = s.kind==='capital'?rrange(B,15,19) : s.kind==='town'?rrange(B,13,17) : rrange(B,10.5,14.5);
+  const earthen = s.kind==='village'&&B()<0.5;
+  const plaza=new THREE.Mesh(new THREE.CircleGeometry(pr,64),
+    earthen?new THREE.MeshLambertMaterial({color:0x93815f})
+           :new THREE.MeshLambertMaterial({map:makePavingTexture(B)}));
   plaza.rotation.x=-Math.PI/2; plaza.position.y=0.06;
   plaza.receiveShadow=true;
   Bubble.group.add(plaza);
-  // a low kerb ring around the square
-  const kerb=new THREE.Mesh(new THREE.TorusGeometry(16,0.22,7,72),
-    new THREE.MeshLambertMaterial({color:0x8a7a5e}));
-  kerb.rotation.x=-Math.PI/2; kerb.position.y=0.06; kerb.receiveShadow=true; kerb.castShadow=true;
-  Bubble.group.add(kerb);
+  if(!earthen&&B()<0.85){
+    const kerb=new THREE.Mesh(new THREE.TorusGeometry(pr,0.22,7,72),
+      new THREE.MeshLambertMaterial({color:0x8a7a5e}));
+    kerb.rotation.x=-Math.PI/2; kerb.position.y=0.06; kerb.receiveShadow=true; kerb.castShadow=true;
+    Bubble.group.add(kerb);
+  }
+  const tAng=-Math.PI/2+(B()-0.5)*2.0, td=pr*0.88;
+  const tx=Math.cos(tAng)*td, tz=Math.sin(tAng)*td;
+  const tRot=Math.atan2(-tx,-tz);
+  const sAng=tAng+Math.PI+(B()-0.5)*1.6, sd=pr+10+B()*4;
+  const sx=Math.cos(sAng)*sd, sz=Math.sin(sAng)*sd;
   // a faith that holds more of the world raises a grander house
-  if(f) buildTemple(f,v3(0,0,-14),B,0.9+clamp01(f.adherents/Math.max(1,totalPop()))*0.7);
-  else if(s.ruins.length) buildRuin(v3(0,0,-14),B);
+  if(f) buildTemple(f,v3(tx,0,tz),B,0.9+clamp01(f.adherents/Math.max(1,totalPop()))*0.7,tRot);
+  else if(s.ruins.length) buildRuin(v3(tx,0,tz),B);
   // secondary shrine for a strong minority
   const minor=Object.entries(s.pool).filter(([k,v])=>+k!==dom&&v>0.25&&World.faiths[k]&&!World.faiths[k].deadYear)[0];
-  if(minor) buildTemple(World.faiths[minor[0]],v3(26,0,10),B,0.55);
+  if(minor) buildTemple(World.faiths[minor[0]],v3(sx,0,sz),B,0.55,Math.atan2(-sx,-sz));
   if(s.ruins.length&&f) buildRuin(v3(-30,0,18),B);
   // ---- houses: real carpentry, three archetypes, five material slots ----
   const style=cultureStyle(s.culture,c.biome);
@@ -3556,6 +3661,14 @@ function enterBubble(setId){
     : s.kind==='town' ? rpick(B,['radial','grid','ribbon'])
     : rpick(B,['radial','ribbon','radial']);
   const th0=B()*TAU, ux=Math.cos(th0), uz=Math.sin(th0), nx=-uz, nz=ux;
+  const lobes=[];
+  if(layout==='radial'){
+    const nl=B()<0.45?0:(B()<0.8?1:2);
+    for(let li=0;li<nl;li++){
+      const la=B()*TAU, lr=rrange(B,34,54);
+      lobes.push({x:Math.cos(la)*lr,z:Math.sin(la)*lr,w:rrange(B,9,16)});
+    }
+  }
   const candidate=(w,d2)=>{
     if(layout==='grid'){
       const gi=rint(B,-7,7), gj=rint(B,-7,7);
@@ -3569,14 +3682,19 @@ function enterBubble(setId){
       const rot=Math.atan2(side*-nx,side*-nz);
       return {x:ux*t2+nx*off, z:uz*t2+nz*off, rot:rot+(B()-0.5)*0.08};
     }
-    const a=B()*TAU, r=21+B()*B()*72;
+    if(lobes.length&&B()<0.5){
+      const lb=lobes[Math.floor(B()*lobes.length)];
+      const gx=lb.x+(B()+B()+B()-1.5)*lb.w, gz=lb.z+(B()+B()+B()-1.5)*lb.w;
+      return {x:gx, z:gz, rot:Math.floor(B()*4)*Math.PI/2+B()*0.2};
+    }
+    const a=B()*TAU, r=pr+5+B()*B()*72;
     return {x:Math.cos(a)*r, z:Math.sin(a)*r*0.85, rot:Math.floor(B()*4)*Math.PI/2+B()*0.2};
   };
   const placed=[];
   const clearOf=(x,z,rad)=>{
-    if(Math.sqrt(x*x+z*z)<19+rad) return false;                    // the square
-    if(Math.sqrt(x*x+(z+14)*(z+14))<15+rad) return false;          // the temple
-    if(Math.sqrt((x-26)*(x-26)+(z-10)*(z-10))<9+rad) return false; // the shrine
+    if(Math.sqrt(x*x+z*z)<pr+3+rad) return false;                        // the square
+    if(Math.sqrt((x-tx)*(x-tx)+(z-tz)*(z-tz))<15+rad) return false;      // the temple
+    if(Math.sqrt((x-sx)*(x-sx)+(z-sz)*(z-sz))<9+rad) return false;       // the shrine
     for(const p of placed){
       const dx=x-p.x,dz=z-p.z;
       if(Math.sqrt(dx*dx+dz*dz)<rad+p.rad+0.7) return false;
@@ -3776,7 +3894,7 @@ function enterBubble(setId){
     Bubble.smokeTex=new THREE.CanvasTexture(scv);
   }
   Bubble.rite=null;
-  scheduleAmbientRite();
+  scheduleAmbientRite(true);
 }
 // flagstone paving, drawn once per settlement: concentric courses of stone
 function makePavingTexture(B){
@@ -3832,10 +3950,11 @@ function disposeBubbleContent(){
 function sunHNow(){ return Math.sin(R3.dayPhase*TAU); }
 
 /* ---------- sacred architecture assembly (carved, not boxed) ---------- */
-function buildTemple(f,at,B,scaleMul){
+function buildTemple(f,at,B,scaleMul,rotY){
   const a=f.arch, k=(a.scale)*(scaleMul||1);
   const grp=new THREE.Group();
   grp.position.copy(at);
+  grp.rotation.y=rotY||0;
   const stone=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.16,0.64)});
   const stoneDark=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.2,0.48)});
   const accent=new THREE.MeshLambertMaterial({color:new THREE.Color().setHSL(a.hue/360,0.36,0.42)});
@@ -4126,7 +4245,10 @@ const RITES=['prayer','procession','sermon','funeral','festival','sacrifice','we
 // consume the history stream, or watching would alter the world
 const PRES=()=>Math.random();
 let ambientRiteAt=0;
-function scheduleAmbientRite(){ ambientRiteAt=performance.now()/1000+rrange(PRES,6,16); }
+function scheduleAmbientRite(first){
+  // a visitor sees ordinary life first; rites arrive as occasions
+  ambientRiteAt=performance.now()/1000+(first?rrange(PRES,16,34):rrange(PRES,50,130));
+}
 function startRite(kind,opts){
   if(!Bubble.built||!Bubble.faith) return;
   const f=Bubble.faith, rs=f.rite;
@@ -4307,9 +4429,11 @@ function updateBubble(dtReal){
       const wts={prayer:0.3+f.vector.ritualDensity, procession:f.rite.procession?0.5:0.05,
         sermon:f.rite.preachy?0.5:0.1, funeral:0.18, festival:f.rite.festivalScale*0.8+0.05,
         sacrifice:f.vector.sacrifice>0?0.3:0, wedding:0.14};
+      if(Bubble.lastRiteKind&&wts[Bubble.lastRiteKind]!==undefined) wts[Bubble.lastRiteKind]*=0.12;
       const kind=rweighted(PRES,Object.keys(wts),k=>wts[k]);
+      Bubble.lastRiteKind=kind;
       startRite(kind);
-      if(PRES()<0.5) emitEvent('rite',5,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
+      if(PRES()<0.3) emitEvent('rite',5,kind==='festival'?chronFestival(f,s):chronRite(kind,f,s),
         {faithId:f.id,setId:s.id,filter:'all',hold:false});
     }
   }
@@ -4492,7 +4616,7 @@ const CameraRig={
   lat:18, lon:-40, dist:PLANET_R*3.2,
   tLat:18, tLon:-40, tDist:PLANET_R*3.2,
   bYaw:0.6, bPitch:0.5, bDist:60, tbYaw:0.6, tbPitch:0.5, tbDist:60,
-  focusSet:-1, follow:null, manualUntil:0, fade:0, fadeDir:0
+  focusSet:-1, landTarget:-1, follow:null, manualUntil:0, fade:0, fadeDir:0
 };
 const BUBBLE_ENTER = PLANET_R*0.09;    // altitude threshold
 function camAltitude(){ return CameraRig.dist-PLANET_R; }
@@ -4524,12 +4648,29 @@ function updateCamera(dtReal){
     const look=surf.clone().lerp(v3(0,0,0),1-tilt*0.85);
     R3.camera.up.copy(alt<PLANET_R*0.7?surf.clone().normalize():north);
     R3.camera.lookAt(tilt>0.5?horizonPoint(C):v3(0,0,0));
+    // landing approach: the ring marks the town you will enter
+    if(alt<BUBBLE_ENTER*3.2&&C.fadeDir===0&&R3.landRing){
+      let sid;
+      if(C.landLock&&C.landTarget>=0) sid=C.landTarget;
+      else{
+        const aim=tilt>0.5?horizonPoint(C):surf;
+        sid=nearestSettlement(aim);
+        if(sid!==C.landTarget){
+          C.landTarget=sid;
+          if(sid>=0) showToast('descending toward '+World.settlements[sid].name);
+        }
+      }
+      if(sid>=0){
+        placeRingAt(R3.landRing,sid,2.2+Math.sin(performance.now()/300)*0.35);
+        R3.landRing.material.opacity=0.5+clamp01(1-alt/(BUBBLE_ENTER*3.2))*0.45;
+      }
+    } else if(R3.landRing&&R3.landRing.visible&&C.fadeDir===0&&!C.landLock){
+      R3.landRing.visible=false; C.landTarget=-1;
+    }
     // enter bubble
     if(alt<BUBBLE_ENTER&&C.fadeDir===0){
-      const c=nearestCell(surf.clone().normalize());
-      let sid=c?c.nearSet:-1;
-      if(sid<0){ sid=nearestSettlement(surf); }
-      if(sid>=0) beginTransition('bubble',sid);
+      let sid=C.landTarget>=0?C.landTarget:nearestSettlement(surf);
+      if(sid>=0){ R3.landRing.visible=false; beginTransition('bubble',sid); }
     }
   } else if(C.mode==='bubble'){
     C.bYaw+=(C.tbYaw-C.bYaw)*k; C.bPitch+=(C.tbPitch-C.bPitch)*k; C.bDist+=(C.tbDist-C.bDist)*k;
@@ -4543,7 +4684,7 @@ function updateCamera(dtReal){
   // the veil of cloud between worlds: whiteout in fast, clear out slow,
   // with the camera motion continuous through it
   if(C.fadeDir!==0){
-    C.fade+=dtReal*(C.fadeDir>0?3.0:-1.5);
+    C.fade+=dtReal*(C.fadeDir>0?2.2:-1.5);
     if(C.fade>=1){ C.fade=1; C.fadeDir=-1; applyPendingMode(); }
     if(C.fade<=0){ C.fade=0; C.fadeDir=0; }
   }
@@ -4570,11 +4711,12 @@ function beginTransition(mode,sid){
 function applyPendingMode(){
   const C=CameraRig;
   if(!pendingMode) return;
+  C.landLock=false; C.landTarget=-1;
   if(pendingMode.mode==='bubble'){
     enterBubble(pendingMode.sid);
     C.mode='bubble'; C.focusSet=pendingMode.sid;
     // fall out of the cloud, still descending: high and steep, easing to eye level
-    C.bDist=110; C.bPitch=1.05; C.bYaw=C.tbYaw=Math.random()*TAU;
+    C.bDist=110; C.bPitch=1.05; C.tbYaw=C.bYaw;   // keep the compass you arrived with
     C.tbDist=32; C.tbPitch=0.48;
     showToast(World.settlements[pendingMode.sid].name);
   } else {
@@ -4684,11 +4826,28 @@ function initInput(){
       const sc=camAltitude()/PLANET_R*0.35;
       C.tLon-=dx*sc; C.tLat+=dy*sc;
       C.tLat=clamp(C.tLat,-88,88);
-      C.follow=null;
+      C.follow=null; C.landLock=false;
     } else {
       C.tbYaw+=dx*0.008; C.tbPitch+=dy*0.006;
       C.tbPitch=clamp(C.tbPitch,0.08,1.35);
     }
+  });
+  el.addEventListener('dblclick',e=>{
+    if(CameraRig.mode!=='globe'||treeOpen) return;
+    if(e.target.closest('#hud,#chronicle,#drawer,#inspector,#treeUI,#faithPanel,#miniTree')) return;
+    const mouse=new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
+    raycaster.setFromCamera(mouse,R3.camera);
+    const hit=raycaster.intersectObject(R3.globe)[0];
+    if(!hit) return;
+    const sid=nearestSettlement(hit.point);
+    if(sid<0) return;
+    suspendDirector();
+    const C=CameraRig;
+    C.landTarget=sid; C.landLock=true; C.follow=null;
+    const ll=v3ToLatLon(World.cells[World.settlements[sid].cell].p);
+    C.tLat=ll.lat; C.tLon=ll.lon;
+    C.tDist=PLANET_R+BUBBLE_ENTER*0.8;
+    showToast('descending toward '+World.settlements[sid].name);
   });
   el.addEventListener('wheel',e=>{
     e.preventDefault(); suspendDirector();
@@ -4696,6 +4855,19 @@ function initInput(){
     const f=Math.exp(e.deltaY*0.0012);
     if(C.mode==='globe'){
       C.tDist=clamp(PLANET_R+(C.tDist-PLANET_R)*f,PLANET_R+2,PLANET_R*4);
+      // descending pulls the view toward what the cursor rests on
+      if(f<1){
+        const mouse=new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
+        raycaster.setFromCamera(mouse,R3.camera);
+        const hit=raycaster.intersectObject(R3.globe)[0];
+        if(hit){
+          const ll=v3ToLatLon(hit.point.clone().normalize());
+          const pull=(1-f)*0.85;
+          C.tLat+=(ll.lat-C.tLat)*pull;
+          C.tLon+=angDelta(C.tLon,ll.lon)*pull;
+          C.follow=null;
+        }
+      }
     } else {
       C.tbDist=clamp(C.tbDist*f,7,150);
     }
@@ -5837,7 +6009,7 @@ function frame(t){
   // world visuals
   const isGlobe=CameraRig.mode==='globe';
   if(isGlobe){
-    if(now-lastOverlayAt>0.8){ lastOverlayAt=now; refreshOverlay(); }
+    if(now-lastOverlayAt>1.4){ lastOverlayAt=now; refreshOverlay(); }
     updateFronts();
     updateSky(dt);
     // the territory tint yields to the terrain as you descend

@@ -283,3 +283,31 @@ lands correctly; five marker families assign; timeline draws and answers
 the pointer; tree pans, zooms, and filters; the walled capital builds; a
 sixty second max-speed soak reached year 11,821 with nine living faiths,
 twenty two draw calls, and zero errors.
+
+## The first live-play notes
+Four complaints from the first session on the deployed site, four fixes.
+- Descent you can aim. Zooming in now pulls the view toward whatever the
+  cursor rests on. Below three landing altitudes a pulsing gold ring marks
+  the town you will enter, with its name announced; double-clicking any
+  town locks it as the target and dives straight down into it, and the
+  lock releases if you drag away. Entry no longer randomizes the compass:
+  you keep the bearing you arrived with. The cloud veil closes a third
+  slower.
+- A rounder, truer globe. Land color is now a distance-weighted blend of
+  nearby cells, so biomes wash into one another instead of showing hard
+  per-vertex triangle edges. The faith overlay was rebuilt from airbrushed
+  blobs to a true region map: a one-time pixel-to-cell index renders every
+  territory as a crisp shape with real coasts and real borders, packed as
+  one 32-bit write per pixel and refreshed every 1.4 seconds.
+- Towns stopped rhyming. The square is sized by rank and sometimes bare
+  earth in villages; the kerb is not universal; the temple takes its own
+  bearing on the plaza rim and faces the center, the minority shrine
+  answers from the far side; radial towns can throw one or two hamlet
+  lobes off to a side so no two plans read alike.
+- Rites became occasions. A visitor sees ordinary life first (first rite
+  16 to 34 seconds in), then rites arrive every 50 to 130 seconds instead
+  of every 6 to 16, the same kind almost never twice in a row, and the
+  chronicle notes fewer of them.
+Verified headlessly: locked descent lands on the chosen town, overlay
+refresh dropped from 43ms toward single digits with packed writes, four
+towns entered without error, twenty seconds at speed 2 clean.
