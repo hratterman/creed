@@ -252,6 +252,7 @@ body.intro .hideable{opacity:0;pointer-events:none;}
     <div class="ht">How to watch a world</div>
     <div class="hrow"><b>Scroll</b> descend from orbit to a temple square, and back out</div>
     <div class="hrow"><b>Double-click</b> a town to dive straight down into it; the gold ring marks where you will land</div>
+    <div class="hrow"><b>Esc</b> rises out of a town and back to the world</div>
     <div class="hrow"><b>Drag</b> turn the world, or orbit the square</div>
     <div class="hrow"><b>Click</b> inspect a faith, settlement, temple, believer, or pilgrim stream</div>
     <div class="hrow"><b>Space</b> pause · <b>1 to 5</b> the two clocks, human to deep time</div>
@@ -2661,6 +2662,7 @@ function buildSettlementMarkers(){
     R3.tmkBase.push({p:cellSurfacePos(c,0.45),q:q.clone(),k:k*0.9});
   }
   R3.scene.add(R3.towns);
+  R3.labelPos=World.settlements.map(st=>cellSurfacePos(World.cells[st.cell],2));
   buildFieldPatches();
   assignTempleMarkers();
 }
@@ -2805,8 +2807,24 @@ function cssToRGBA(col){
   if(m) return [+m[1],+m[2],+m[3],(m[4]===undefined?1:+m[4])*255];
   return [255,255,255,128];
 }
-let ovImg=null;
+let ovImg=null, ovSig=null;
+function overlaySignature(){
+  if(overlayMode!=='faiths') return 'm'+overlayMode+Math.floor(performance.now()/1400);
+  let h=17;
+  for(const s of World.settlements){
+    const d=dominantFaith(s);
+    h=(h*31+(d===null?0:d+1))|0;
+    h=(h*31+(s.holySite?s.holySite.faithId+2:1))|0;
+  }
+  const tp=Math.max(1,totalPop());
+  for(const f of World.faiths) if(!f.deadYear)
+    h=(h*31+Math.min(40,Math.round(f.adherents/tp*40))+(f.status==='spreading'?7:0))|0;
+  return h;
+}
 function refreshOverlay(force){
+  const sig=overlaySignature();
+  if(!force&&sig===ovSig) return;
+  ovSig=sig;
   const gMain=R3.ovCanvas.getContext('2d');
   // territory fields draw to a scratch canvas, composite through one blur,
   // then take inked border stippling on top: a map, not a spray
@@ -2998,22 +3016,23 @@ function updateFronts(){
 }
 
 /* ---------- labels ---------- */
+const _lbV=new THREE.Vector3(), _lbCam=new THREE.Vector3();
 function drawLabels(alt){
   const g=document.getElementById('labels').getContext('2d');
   g.clearRect(0,0,innerWidth,innerHeight);
   if(CameraRig.mode!=='globe'||document.body.classList.contains('watch')) return;
   if(!World.showLabels) return;
+  _lbCam.copy(R3.camera.position).normalize();
   if(alt>PLANET_R*2.2) { drawFaithLabels(g); return; }
   if(alt>PLANET_R*0.04){
-    const v=new THREE.Vector3();
     g.font='11px Georgia'; g.textAlign='center';
-    for(const s of World.settlements){
+    for(let i=0;i<World.settlements.length;i++){
+      const s=World.settlements[i];
       if(alt>PLANET_R*0.9&&s.kind==='village') continue;
-      const c=World.cells[s.cell];
-      if(c.p.dot(R3.camera.position.clone().normalize())<0.55) continue;
-      v.copy(cellSurfacePos(c,2)); v.project(R3.camera);
-      if(v.z>1) continue;
-      const x=(v.x+1)/2*innerWidth, y=(1-v.y)/2*innerHeight;
+      if(World.cells[s.cell].p.dot(_lbCam)<0.55) continue;
+      _lbV.copy(R3.labelPos[i]).project(R3.camera);
+      if(_lbV.z>1) continue;
+      const x=(_lbV.x+1)/2*innerWidth, y=(1-_lbV.y)/2*innerHeight;
       g.fillStyle='rgba(10,8,4,0.55)';
       g.fillText(s.name,x+1,y-7);
       g.fillStyle=s.kind==='capital'?'#f0dfae':'#cdbf9b';
@@ -3021,27 +3040,50 @@ function drawLabels(alt){
     }
     if(alt<=PLANET_R*0.9) drawFaithLabels(g);
   } else drawFaithLabels(g);
+  // the town the descent will enter, named beside its gold ring
+  const lt=CameraRig.landTarget;
+  if(lt>=0&&R3.landRing&&R3.landRing.visible&&World.settlements[lt]){
+    _lbV.copy(R3.labelPos[lt]).project(R3.camera);
+    if(_lbV.z<=1){
+      const x=(_lbV.x+1)/2*innerWidth, y=(1-_lbV.y)/2*innerHeight;
+      g.font='italic 15px Georgia'; g.textAlign='center';
+      g.fillStyle='rgba(10,8,4,0.7)'; g.fillText('\u25bc '+World.settlements[lt].name,x+1,y+27);
+      g.fillStyle='#ffd968'; g.fillText('\u25bc '+World.settlements[lt].name,x,y+26);
+    }
+  }
 }
-function drawFaithLabels(g){
-  // faith names at adherent-weighted centroids
-  g.font='italic 15px Georgia'; g.textAlign='center';
+/* faith names ride adherent-weighted centroids, recomputed on a slow
+   cadence and drawn from cache so the label layer never allocates */
+let flCache=[], flCacheAt=-9;
+function refreshFaithLabelCache(){
+  flCache.length=0;
   const live=livingFaiths().sort((a,b)=>b.adherents-a.adherents).slice(0,9);
-  const v=new THREE.Vector3();
+  const tp=Math.max(1,totalPop());
   for(const f of live){
     if(f.adherents<800) continue;
-    let cx=v3(0,0,0),w=0;
+    let cx=0,cy=0,cz=0,w=0;
     for(const s of World.settlements){
       const sh=s.pool[f.id]||0; if(sh<0.2) continue;
-      cx.add(World.cells[s.cell].p.clone().multiplyScalar(sh*s.pop)); w+=sh*s.pop;
+      const p=World.cells[s.cell].p, ww=sh*s.pop;
+      cx+=p.x*ww; cy+=p.y*ww; cz+=p.z*ww; w+=ww;
     }
     if(w<1) continue;
-    cx.normalize();
-    if(cx.dot(R3.camera.position.clone().normalize())<0.6) continue;
-    v.copy(cx.multiplyScalar(PLANET_R+4)); v.project(R3.camera);
-    if(v.z>1) continue;
-    const x=(v.x+1)/2*innerWidth,y=(1-v.y)/2*innerHeight;
-    g.fillStyle='rgba(0,0,0,0.6)'; g.fillText(f.name,x+1,y+1);
-    g.fillStyle=f.color; g.fillText(f.name,x,y);
+    const v=v3(cx,cy,cz).normalize().multiplyScalar(PLANET_R+4);
+    flCache.push({name:f.name,color:f.color,pos:v,share:f.adherents/tp});
+  }
+}
+function drawFaithLabels(g){
+  const now=performance.now()/1000;
+  if(now-flCacheAt>2.5){ flCacheAt=now; refreshFaithLabelCache(); }
+  g.textAlign='center';
+  for(const e of flCache){
+    if(e.pos.dot(_lbCam)<PLANET_R*0.6) continue;
+    _lbV.copy(e.pos).project(R3.camera);
+    if(_lbV.z>1) continue;
+    const x=(_lbV.x+1)/2*innerWidth,y=(1-_lbV.y)/2*innerHeight;
+    g.font='italic '+(13+Math.min(14,e.share*40))+'px Georgia';
+    g.fillStyle='rgba(0,0,0,0.6)'; g.fillText(e.name,x+1,y+1);
+    g.fillStyle=e.color; g.fillText(e.name,x,y);
   }
 }
 
@@ -3612,12 +3654,15 @@ function enterBubble(setId){
     kerb.rotation.x=-Math.PI/2; kerb.position.y=0.06; kerb.receiveShadow=true; kerb.castShadow=true;
     Bubble.group.add(kerb);
   }
+  Bubble.plazaR=pr;
+  Bubble.pois={homes:[],gather:[],fields:[],temple:[]};
   const tAng=-Math.PI/2+(B()-0.5)*2.0, td=pr*0.88;
   const tx=Math.cos(tAng)*td, tz=Math.sin(tAng)*td;
   const tRot=Math.atan2(-tx,-tz);
   const sAng=tAng+Math.PI+(B()-0.5)*1.6, sd=pr+10+B()*4;
   const sx=Math.cos(sAng)*sd, sz=Math.sin(sAng)*sd;
   // a faith that holds more of the world raises a grander house
+  Bubble.pois.temple.push({x:tx*0.66,z:tz*0.66});
   if(f) buildTemple(f,v3(tx,0,tz),B,0.9+clamp01(f.adherents/Math.max(1,totalPop()))*0.7,tRot);
   else if(s.ruins.length) buildRuin(v3(tx,0,tz),B);
   // secondary shrine for a strong minority
@@ -3728,6 +3773,7 @@ function enterBubble(setId){
     }
     if(!ok) continue;
     placed.push({x,z,rad});
+    Bubble.pois.homes.push({x:x+Math.cos(rot)*1.2,z:z+Math.sin(rot)*1.2});
     const y=groundY(x,z,setId);
     q.setFromAxisAngle(v3(0,1,0),rot);
     sc.set(u,u*(0.94+B()*0.16),u);
@@ -3761,6 +3807,11 @@ function enterBubble(setId){
   // ---- furniture of rank: stalls and banners for capitals, a well for
   // towns, haystacks for villages ----
   buildFurniture(s,f,B,placed,setId);
+  for(let fi=0;fi<6;fi++){
+    const fa=B()*TAU, fr=42+B()*16;
+    Bubble.pois.fields.push({x:Math.cos(fa)*fr,z:Math.sin(fa)*fr});
+  }
+  if(!Bubble.pois.gather.length) Bubble.pois.gather.push({x:pr*0.5,z:0},{x:-pr*0.4,z:pr*0.4});
   // a capital grown past six thousand souls raises a circuit wall
   if(s.kind==='capital'&&s.pop>6000) buildCityWall(B,placed,setId);
   // ---- flora: canopies where it is green, stones where it is dry ----
@@ -3818,8 +3869,16 @@ function enterBubble(setId){
   for(let i=0;i<np;i++){
     const a=B()*TAU,r=6+B()*55;
     const fpick=pickPoolFaith(s,B);
+    let hm=null;
+    if(Bubble.pois.homes.length){
+      const hn=Bubble.pois.homes.length;
+      for(let hc=0;hc<3;hc++){
+        const cand=Bubble.pois.homes[(i*7+hc*13)%hn];
+        if(!hm||Math.hypot(cand.x-Math.cos(a)*r,cand.z-Math.sin(a)*r)<Math.hypot(hm.x-Math.cos(a)*r,hm.z-Math.sin(a)*r)) hm=cand;
+      }
+    }
     const p={x:Math.cos(a)*r,z:Math.sin(a)*r,tx:0,tz:0,speed:1.4+B()*1.2,phase:B()*TAU,
-      faith:fpick,bow:0,role:i===0?'priest':'folk',k:0.9+B()*0.22};
+      faith:fpick,bow:0,role:i===0?'priest':'folk',k:0.9+B()*0.22,home:hm,inside:false};
     p.tx=p.x;p.tz=p.z;
     Bubble.people.push(p);
     if(fpick!==null&&World.faiths[fpick]) cc.set(World.faiths[fpick].colorDim);
@@ -4162,7 +4221,9 @@ function buildFurniture(s,f,B,placed,setId){
   const wood=new THREE.MeshLambertMaterial({color:0x6a4a30});
   if(s.kind!=='capital'){
     // the well: a ring, two posts, a little roof
-    const wa=B()*TAU, wx=Math.cos(wa)*18.5, wz=Math.sin(wa)*18.5;
+    const wa=B()*TAU, wr=(Bubble.plazaR||16)+3.5+B()*3;
+    const wx=Math.cos(wa)*wr, wz=Math.sin(wa)*wr;
+    if(Bubble.pois) Bubble.pois.gather.push({x:wx,z:wz});
     const well=new THREE.Group();
     well.add(new THREE.Mesh(latheGeo([[0.85,0],[0.85,0.55],[0.65,0.6],[0.65,0.06]],20),stone));
     for(const sx of [-1,1]){
@@ -4187,7 +4248,9 @@ function buildFurniture(s,f,B,placed,setId){
     const awnTex=new THREE.CanvasTexture(awnCv);
     for(let i=0;i<nst;i++){
       const a=(i/nst)*TAU+B()*0.5+2.2;
-      const sx=Math.cos(a)*13.6, sz=Math.sin(a)*13.6;
+      const rimR=(Bubble.plazaR||16)*0.85;
+      const sx=Math.cos(a)*rimR, sz=Math.sin(a)*rimR;
+      if(Bubble.pois) Bubble.pois.gather.push({x:sx,z:sz});
       const st=new THREE.Group();
       for(const px of [-1,1]) for(const pz of [-1,1]){
         const post=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.06,2.0,6),wood);
@@ -4398,19 +4461,55 @@ function endRite(){
       if(o.material&&o.material.dispose) o.material.dispose(); });
     Bubble.riteProps=null; Bubble.palanquin=null;
   }
-  for(const p of Bubble.people){ p.pendAt=null; p.lift=0; }
+  const dark=Math.sin(R3.dayPhase*TAU)<-0.18;
+  for(const p of Bubble.people){
+    p.pendAt=null; p.lift=0;
+    if(dark&&p.home&&Math.random()<0.85){ p.tx=p.home.x; p.tz=p.home.z; }
+  }
   removeFire(Bubble.pyreFire); Bubble.pyreFire=null;
   removeFire(Bubble.bonfireObj); Bubble.bonfireObj=null;
   Bubble.bonfire=null; Bubble.bonfireFlame=null;
   scheduleAmbientRite();
 }
+/* what a visitor finds: one line of circumstance for the arrival toast */
+function arrivalLine(s){
+  const bits=[];
+  const f=Bubble.faith;
+  const seasonIdx=Math.floor(((World.year%1)+1)%1*4);
+  const season=['spring','summer','autumn','winter'][seasonIdx];
+  if(f&&f.vector.sacredCalendar>0.4&&Math.floor(f.vector.sacredCalendar*4)%4===seasonIdx)
+    bits.push('the holy days of '+f.coreName+' are being kept');
+  if(s.cond.famine>0.4) bits.push('hunger sits at the gates');
+  else if(s.cond.pestilence>0.4) bits.push('sickness walks the lanes');
+  if(s.cond.war>0.4) bits.push('the levies are mustered for war');
+  else if(s.cond.oppression>0.5) bits.push('a persecution weighs on the town');
+  if(!bits.length&&s.unrest>0.5) bits.push('the streets are uneasy');
+  if(!bits.length&&s.prosperity>0.75) bits.push('the granaries are full');
+  if(!bits.length&&s.kind!=='village'&&Math.sin(R3.dayPhase*TAU)>0.3) bits.push('market day on the square');
+  if(!bits.length) bits.push('an ordinary '+season+' day');
+  return s.name+' \u00b7 '+bits[0];
+}
+/* the day gives each hour its errand: fields at dawn, the square at noon,
+   home at dusk, sleep at night */
+function pickErrand(p){
+  const P=Bubble.pois, dp=R3.dayPhase, r=Math.random();
+  const wander=()=>{ const a=Math.random()*TAU, rr=8+Math.random()*46; return {x:Math.cos(a)*rr,z:Math.sin(a)*rr}; };
+  const from=arr=>arr.length?arr[Math.floor(Math.random()*arr.length)]:wander();
+  let tgt;
+  if(dp<0.05||dp>=0.72) tgt = r<0.75&&p.home?p.home : r<0.85?from(P.temple):wander();
+  else if(dp<0.2)       tgt = r<0.4?from(P.fields) : r<0.55?from(P.gather) : r<0.7&&p.home?p.home : wander();
+  else if(dp<0.55)      tgt = r<0.35?from(P.gather) : r<0.6?from(P.fields) : r<0.7?from(P.temple) : wander();
+  else                  tgt = r<0.45&&p.home?p.home : r<0.6?from(P.gather) : r<0.75?from(P.temple) : wander();
+  return {x:tgt.x+(Math.random()*5-2.5), z:tgt.z+(Math.random()*5-2.5)};
+}
 function updateBubble(dtReal){
   if(!Bubble.built) return;
   const now=performance.now()/1000;
   const s=World.settlements[Bubble.setId];
+  const sunNow=Math.sin(R3.dayPhase*TAU);
   // pilgrim files: at the great destinations, travelers arrive by road
   if(World.speed>=1&&World.speed<=2&&Bubble.faith&&Bubble.faith.vector.pilgrimage>0.55
-     &&Bubble.faith.holySiteSet===Bubble.setId&&!Bubble.rite){
+     &&Bubble.faith.holySiteSet===Bubble.setId&&!Bubble.rite&&sunNow>-0.05){
     Bubble._pilT=(Bubble._pilT||0)-dtReal;
     if(Bubble._pilT<=0){
       Bubble._pilT=7+Math.random()*8;
@@ -4423,7 +4522,7 @@ function updateBubble(dtReal){
     }
   }
   // ambient rite scheduling at human speeds
-  if(!Bubble.rite&&now>ambientRiteAt&&World.speed>=1&&World.speed<=2){
+  if(!Bubble.rite&&now>ambientRiteAt&&World.speed>=1&&World.speed<=2&&sunNow>-0.05){
     const f=Bubble.faith;
     if(f){
       const wts={prayer:0.3+f.vector.ritualDensity, procession:f.rite.procession?0.5:0.05,
@@ -4464,16 +4563,29 @@ function updateBubble(dtReal){
   // move people
   const m=new THREE.Matrix4(),q=new THREE.Quaternion(),sc=new THREE.Vector3();
   const f=Bubble.faith, posture=f?f.rite.posture:'sway';
+  const nightNow=sunNow<-0.18;
+  if(nightNow&&!Bubble._wasNight){
+    for(const p of Bubble.people)
+      if(!p.inRite&&p.home&&Math.random()<0.85){ p.tx=p.home.x; p.tz=p.home.z; }
+  }
+  Bubble._wasNight=nightNow;
   for(let i=0;i<Bubble.people.length;i++){
     const p=Bubble.people[i];
     const dx=p.tx-p.x, dz=p.tz-p.z;
     const d=Math.sqrt(dx*dx+dz*dz);
     const spd=p.speed*(p.inRite?2.6:1);   // the summons is answered at a hurry
-    if(d>0.3){ p.x+=dx/d*spd*dtReal; p.z+=dz/d*spd*dtReal; p.bow=Math.max(0,p.bow-dtReal*2); }
+    if(p.inside){ /* indoors: the lamps are lit, the street is empty */ }
+    else if(d>0.3){ p.x+=dx/d*spd*dtReal; p.z+=dz/d*spd*dtReal; p.bow=Math.max(0,p.bow-dtReal*2); }
     else if(!p.inRite&&Math.random()<dtReal*0.15){
-      const a=Math.random()*TAU,r=8+Math.random()*46;
-      p.tx=Math.cos(a)*r;p.tz=Math.sin(a)*r;
+      const t2=pickErrand(p);
+      p.tx=t2.x; p.tz=t2.z;
     }
+    // night: those who reach their door step inside until the light returns
+    if(p.inRite) p.inside=false;
+    else if(nightNow&&p.home){
+      const hd=Math.hypot(p.x-p.home.x,p.z-p.home.z);
+      if(hd<2.4) p.inside=true;
+    } else if(p.inside){ p.inside=false; const t3=pickErrand(p); p.tx=t3.x; p.tz=t3.z; }
     let bowT=0, yScale=1;
     if(p.inRite&&d<=0.6&&Bubble.rite){
       const k=Bubble.rite.kind;
@@ -4487,6 +4599,7 @@ function updateBubble(dtReal){
     const walkBob=d>0.3?Math.abs(Math.sin(now*6+p.phase))*0.05:0;
     const idleSway=d<=0.3?Math.sin(now*1.1+p.phase)*0.012:0;
     sc.set(p.k,yScale*p.k,p.k);
+    if(p.inside) sc.set(0.0001,0.0001,0.0001);
     q.setFromAxisAngle(v3(0,1,0),Math.atan2(dx,dz)+idleSway*4);
     m.compose(v3(p.x+idleSway,groundY(p.x,p.z,Bubble.setId)+walkBob+(d<=0.6?(p.lift||0):0),p.z),q,sc);
     Bubble.crowd.setMatrixAt(i,m);
@@ -4619,8 +4732,23 @@ const CameraRig={
   focusSet:-1, landTarget:-1, follow:null, manualUntil:0, fade:0, fadeDir:0
 };
 const BUBBLE_ENTER = PLANET_R*0.09;    // altitude threshold
+/* picking against the planet is a ray and a sphere, solved in closed form;
+   the 300k-triangle terrain mesh never needs to be raycast */
+const _pkV=new THREE.Vector3(), _pkD=new THREE.Vector3(), _pkO=new THREE.Vector3();
+function pickGlobePoint(clientX,clientY){
+  _pkV.set(clientX/innerWidth*2-1,-(clientY/innerHeight)*2+1,0.5).unproject(R3.camera);
+  _pkD.copy(_pkV).sub(R3.camera.position).normalize();
+  const o=R3.camera.position;
+  const b=_pkD.dot(o);
+  const disc=b*b-(o.lengthSq()-PLANET_R*PLANET_R);
+  if(disc<0) return null;
+  const t=-b-Math.sqrt(disc);
+  if(t<0) return null;
+  return _pkO.copy(_pkD).multiplyScalar(t).add(o);
+}
 function camAltitude(){ return CameraRig.dist-PLANET_R; }
 
+const _camUp=new THREE.Vector3(), _camLook=new THREE.Vector3();
 function updateCamera(dtReal){
   const C=CameraRig;
   const k=1-Math.pow(0.0018,dtReal);   // spring
@@ -4641,24 +4769,25 @@ function updateCamera(dtReal){
     const alt=camAltitude();
     const eye=latLonToV3(C.lat,C.lon,C.dist);
     R3.camera.position.copy(eye);
-    // tilt toward the horizon as we descend
+    // tilt toward the horizon as we descend; up and look both blend
+    // continuously so the descent never snaps
     const tilt=clamp01(1-(alt-6)/(PLANET_R*0.5));
     const surf=latLonToV3(C.lat,C.lon,PLANET_R);
-    const north=v3(0,1,0);
-    const look=surf.clone().lerp(v3(0,0,0),1-tilt*0.85);
-    R3.camera.up.copy(alt<PLANET_R*0.7?surf.clone().normalize():north);
-    R3.camera.lookAt(tilt>0.5?horizonPoint(C):v3(0,0,0));
+    const surfN=surf.clone().normalize();
+    const upB=smoothstep(clamp01((PLANET_R*0.95-alt)/(PLANET_R*0.6)));
+    _camUp.set(0,1,0).lerp(surfN,upB).normalize();
+    R3.camera.up.copy(_camUp);
+    const lookB=smoothstep(clamp01((tilt-0.32)/0.36));
+    _camLook.set(0,0,0).lerp(horizonPoint(C),lookB);
+    R3.camera.lookAt(_camLook);
     // landing approach: the ring marks the town you will enter
     if(alt<BUBBLE_ENTER*3.2&&C.fadeDir===0&&R3.landRing){
       let sid;
       if(C.landLock&&C.landTarget>=0) sid=C.landTarget;
       else{
-        const aim=tilt>0.5?horizonPoint(C):surf;
+        const aim=pickGlobePoint(innerWidth/2,innerHeight*0.55)||surf;
         sid=nearestSettlement(aim);
-        if(sid!==C.landTarget){
-          C.landTarget=sid;
-          if(sid>=0) showToast('descending toward '+World.settlements[sid].name);
-        }
+        C.landTarget=sid;
       }
       if(sid>=0){
         placeRingAt(R3.landRing,sid,2.2+Math.sin(performance.now()/300)*0.35);
@@ -4718,7 +4847,7 @@ function applyPendingMode(){
     // fall out of the cloud, still descending: high and steep, easing to eye level
     C.bDist=110; C.bPitch=1.05; C.tbYaw=C.bYaw;   // keep the compass you arrived with
     C.tbDist=32; C.tbPitch=0.48;
-    showToast(World.settlements[pendingMode.sid].name);
+    showToast(arrivalLine(World.settlements[pendingMode.sid]),5200);
   } else {
     C.mode='globe'; C.focusSet=-1;
     const s=World.settlements[Bubble.setId];
@@ -4730,6 +4859,15 @@ function applyPendingMode(){
     disposeBubbleContent();
   }
   pendingMode=null;
+}
+function descendTo(sid){
+  suspendDirector();
+  const C=CameraRig;
+  if(C.mode==='bubble'){ if(sid!==C.focusSet){ beginTransition('globe',-1); } return; }
+  C.landTarget=sid; C.landLock=true; C.follow=null;
+  const ll=v3ToLatLon(World.cells[World.settlements[sid].cell].p);
+  C.tLat=ll.lat; C.tLon=ll.lon;
+  C.tDist=PLANET_R+BUBBLE_ENTER*0.8;
 }
 function flyTo(setId,alt){
   const s=World.settlements[setId];
@@ -4778,13 +4916,11 @@ function initInput(){
     lastHover=now;
     if(CameraRig.mode!=='globe'||treeOpen||dragging||!R3.hoverRing){ if(R3.hoverRing) R3.hoverRing.visible=false; return; }
     if(e.target.closest('#hud,#chronicle,#drawer,#inspector,#treeUI,#faithPanel,#miniTree')){ R3.hoverRing.visible=false; return; }
-    const mouse=new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
-    raycaster.setFromCamera(mouse,R3.camera);
-    const hit=raycaster.intersectObject(R3.globe)[0];
+    const hit=pickGlobePoint(e.clientX,e.clientY);
     if(!hit){ R3.hoverRing.visible=false; document.body.style.cursor=''; return; }
-    const sid=nearestSettlement(hit.point);
+    const sid=nearestSettlement(hit);
     const s=World.settlements[sid];
-    if(s&&World.cells[s.cell].p.dot(hit.point.clone().normalize())>0.9955){
+    if(s&&World.cells[s.cell].p.dot(hit.clone().normalize())>0.9955){
       placeRingAt(R3.hoverRing,sid,1.7);
       document.body.style.cursor='pointer';
     } else { R3.hoverRing.visible=false; document.body.style.cursor=''; }
@@ -4835,19 +4971,10 @@ function initInput(){
   el.addEventListener('dblclick',e=>{
     if(CameraRig.mode!=='globe'||treeOpen) return;
     if(e.target.closest('#hud,#chronicle,#drawer,#inspector,#treeUI,#faithPanel,#miniTree')) return;
-    const mouse=new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
-    raycaster.setFromCamera(mouse,R3.camera);
-    const hit=raycaster.intersectObject(R3.globe)[0];
+    const hit=pickGlobePoint(e.clientX,e.clientY);
     if(!hit) return;
-    const sid=nearestSettlement(hit.point);
-    if(sid<0) return;
-    suspendDirector();
-    const C=CameraRig;
-    C.landTarget=sid; C.landLock=true; C.follow=null;
-    const ll=v3ToLatLon(World.cells[World.settlements[sid].cell].p);
-    C.tLat=ll.lat; C.tLon=ll.lon;
-    C.tDist=PLANET_R+BUBBLE_ENTER*0.8;
-    showToast('descending toward '+World.settlements[sid].name);
+    const sid=nearestSettlement(hit);
+    if(sid>=0) descendTo(sid);
   });
   el.addEventListener('wheel',e=>{
     e.preventDefault(); suspendDirector();
@@ -4856,13 +4983,11 @@ function initInput(){
     if(C.mode==='globe'){
       C.tDist=clamp(PLANET_R+(C.tDist-PLANET_R)*f,PLANET_R+2,PLANET_R*4);
       // descending pulls the view toward what the cursor rests on
-      if(f<1){
-        const mouse=new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);
-        raycaster.setFromCamera(mouse,R3.camera);
-        const hit=raycaster.intersectObject(R3.globe)[0];
+      if(f<1&&!C.landLock){
+        const hit=pickGlobePoint(e.clientX,e.clientY);
         if(hit){
-          const ll=v3ToLatLon(hit.point.clone().normalize());
-          const pull=(1-f)*0.85;
+          const ll=v3ToLatLon(_pkV.copy(hit).normalize());
+          const pull=(1-f)*0.45;
           C.tLat+=(ll.lat-C.tLat)*pull;
           C.tLon+=angDelta(C.tLon,ll.lon)*pull;
           C.follow=null;
@@ -4881,7 +5006,11 @@ function initInput(){
     else if(e.key==='t'||e.key==='T') toggleTree();
     else if(e.key==='p'||e.key==='P') makePostcard();
     else if(e.key==='?') document.getElementById('helpOverlay').classList.toggle('on');
-    else if(e.key==='Escape'){ hideInspector(); if(armedAct) armAct(null); if(treeOpen) toggleTree(false); }
+    else if(e.key==='Escape'){
+      const inspOpen=document.getElementById('inspector').style.display==='block';
+      hideInspector(); if(armedAct) armAct(null); if(treeOpen) toggleTree(false);
+      else if(CameraRig.mode==='bubble'&&!inspOpen) CameraRig.tbDist=150;
+    }
   });
 }
 const raycaster=new THREE.Raycaster();
@@ -4892,8 +5021,9 @@ function handleClick(e){
   raycaster.setFromCamera(mouse,R3.camera);
   suspendDirector();
   if(CameraRig.mode==='globe'){
-    const hit=raycaster.intersectObject(R3.globe)[0];
-    if(!hit){ hideInspector(); return; }
+    const hitP=pickGlobePoint(e.clientX,e.clientY);
+    if(!hitP){ hideInspector(); return; }
+    const hit={point:hitP.clone()};
     const n=hit.point.clone().normalize();
     if(armedAct){ performAct(armedAct,nearestSettlement(hit.point)); return; }
     // fronts first
@@ -5120,6 +5250,11 @@ const Director={
 };
 function directorTick(now,dtReal){
   if(now<CameraRig.manualUntil){ Director.active=null; return; }
+  // a visitor standing in a town is never pulled away; the director
+  // only conducts down here when watch mode has the baton
+  if(CameraRig.mode==='bubble'&&!document.body.classList.contains('watch')){
+    World.eventBus.length=0; Director.active=null; return;
+  }
   // finish current beat
   if(Director.active&&now>Director.until){
     if(Director.restoreSpeed!==null&&Director.active.kind==='hold'){
@@ -5670,7 +5805,7 @@ function inspectSettlement(s){
     ${condLine(s)}
     <div style="margin-top:6px"><span class="jump" id="jumpVisit">descend to the square</span></div>`;
   document.getElementById('inspBody').querySelectorAll('.jump[data-fid]').forEach(j=>j.onclick=()=>inspectFaith(World.faiths[+j.dataset.fid]));
-  document.getElementById('jumpVisit').onclick=()=>{ flyTo(s.id,BUBBLE_ENTER*0.8); suspendDirector(); };
+  document.getElementById('jumpVisit').onclick=()=>descendTo(s.id);
 }
 function notableRows(s){
   // HEARTH notables: deterministic per settlement and generation
@@ -5739,10 +5874,10 @@ function inspectPerson(i){
   document.getElementById('inspBody').querySelectorAll('.jump[data-fid]').forEach(j=>j.onclick=()=>inspectFaith(World.faiths[+j.dataset.fid]));
 }
 let toastTimer=null;
-function showToast(msg){
+function showToast(msg,ms){
   const t=document.getElementById('toast');
   t.textContent=msg; t.style.opacity=1;
-  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity=0,2600);
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.style.opacity=0,ms||2600);
 }
 
 /* ---------- the timeline strip: the shape of the ages at a glance ---------- */
@@ -5837,8 +5972,10 @@ function audioAmbient(){
     if(CameraRig.mode==='globe'){
       wind=0.05+clamp01(camAltitude()/(PLANET_R*2.5))*0.11;
     } else {
-      wind=0.035;
-      mur=clamp01((Bubble.nPeople||0)/150)*(Bubble.rite?0.11:0.055);
+      // the town sounds like its hour: murmur by day, hush and wind by night
+      const dayF=typeof R3!=='undefined'?clamp01(Math.sin(R3.dayPhase*TAU)+0.6):1;
+      wind=0.035+(1-dayF)*0.014;
+      mur=clamp01((Bubble.nPeople||0)/150)*(Bubble.rite?0.11:0.055)*(0.3+0.7*dayF);
     }
   }
   if(!AudioSys.on){ wind=0; mur=0; }

@@ -311,3 +311,44 @@ Four complaints from the first session on the deployed site, four fixes.
 Verified headlessly: locked descent lands on the chosen town, overlay
 refresh dropped from 43ms toward single digits with packed writes, four
 towns entered without error, twenty seconds at speed 2 clean.
+
+## The steadiness pass
+The complaint was jitter, and the causes were found, not guessed.
+- The label layer allocated thousands of vectors per frame (nine faiths
+  times every settlement, cloned per frame), and the garbage collector's
+  pauses were the shake. Labels now draw from caches through two scratch
+  vectors: settlement anchors precomputed once, faith centroids refreshed
+  every 2.5 seconds.
+- Every hover, click, wheel tick, and double click raycast the 300k
+  triangle terrain mesh. Picking against a planet is a ray and a sphere;
+  it is now solved in closed form with zero allocation and no mesh walk.
+- The descent camera snapped twice on the way down: the look target
+  flipped from planet center to horizon at one altitude and the up vector
+  flipped from north to surface at another. Both now blend continuously
+  through smoothstep windows. The wheel's pull toward the cursor was
+  halved so fast scrolling no longer zigzags.
+- The overlay rebuilt its half-million-pixel raster every 1.4 seconds
+  even when nothing changed. A territory signature (dominant faith, holy
+  sites, coarse share buckets) now gates the work: an unchanged world
+  costs a tenth of a millisecond.
+- The director could seize the camera thirty seconds after a visitor
+  walked into a town and fly them somewhere else. Down in a town the
+  director now yields entirely unless watch mode holds the baton.
+And the depth half of the request:
+- Towns keep hours. People walk to the fields at dawn, gather at the
+  stalls and the well at midday, drift home at dusk in a visible
+  migration, and step indoors for the night while the windows kindle;
+  at first light the doors open again. Ambient rites and pilgrim files
+  keep daylight hours. Each person owns the nearest of three candidate
+  homes, so the dusk walk is short enough to finish before dark.
+- Arrival tells you what you walked into: the toast reads circumstance
+  from the town (holy days kept, hunger at the gates, war levies, an
+  uneasy street, full granaries, market day, or an ordinary spring day).
+- The town inspector's descend link now locks the destination like the
+  double click, so it lands where it says.
+- Night hushes the murmur and lifts the wind; Escape rises out of a town.
+Verified: a real double click through the browser event path landed on
+the exact town clicked; the overlay skip path measures 0.1ms against 24ms
+full; night sends the crowd home and ten were indoors within thirty
+SwiftShader seconds (a real GPU walks twice as fast); Escape exits; zero
+page errors across the sweep.
